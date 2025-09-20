@@ -45,6 +45,20 @@ public class MultithreadingExample {
     }
 }
 ```
+```bash
+result:
+Main thread continues...
+Thread 1: 0
+Thread 2: 0
+Thread 1: 1
+Thread 2: 1
+Thread 1: 2
+Thread 2: 2
+Thread 2: 3
+Thread 1: 3
+Thread 2: 4
+Thread 1: 4
+```
 
 ## 1.2 Threads vs Processes
 
@@ -94,6 +108,12 @@ public class ProcessVsThreadExample {
         System.out.println("Main thread - PID: " + ProcessHandle.current().pid());
     }
 }
+```
+result:
+```bash
+Main thread - PID: 12764
+Thread 2 - PID: 12764
+Thread 1 - PID: 12764
 ```
 
 ## 1.3 Multithreading Benefits and Challenges
@@ -186,6 +206,16 @@ public class MultithreadingBenefits {
     }
 }
 ```
+```bash
+Sequential time: 3024ms
+t1 start
+t2 start
+t3 start
+t1 join
+t2 join
+t3 join
+Parallel time: 1005ms
+```
 
 ### Java Example - Challenges:
 ```java
@@ -213,6 +243,30 @@ public class MultithreadingChallenges {
         System.out.println("Counter value: " + counter);
     }
 }
+```
+result:
+```bash
+thread 0 started
+thread 1 started
+thread 2 started
+thread 3 started
+thread 4 started
+thread 5 started
+thread 6 started
+thread 7 started
+thread 8 started
+thread 9 started
+thread join Thread-0
+thread join Thread-1
+thread join Thread-2
+thread join Thread-3
+thread join Thread-4
+thread join Thread-5
+thread join Thread-6
+thread join Thread-7
+thread join Thread-8
+thread join Thread-9
+Counter value: 10000
 ```
 
 ## 1.4 Multithreading vs Parallelism
