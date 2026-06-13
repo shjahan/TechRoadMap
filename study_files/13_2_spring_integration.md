@@ -1,6 +1,39 @@
 # Spring Integration — Enterprise Integration Patterns
 
-> Spring Integration پیاده‌سازی EIP را برای ادغام سیستم‌ها فراهم می‌کند.
+> Spring Integration پیاده‌سازی EIP را برای ادغام سیستم‌ها فراهم می‌کند. این فایل با دیاگرام گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Spring Integration))
+    Message/Channel
+      Direct vs Queue
+    Components
+      ServiceActivator
+      Transformer/Filter/Router
+      Splitter/Aggregator
+    Adapters
+      File/FTP/HTTP/JDBC/Kafka
+```
+
+---
+
+## جریان Integration
+
+```mermaid
+flowchart LR
+    In[Inbound Adapter Kafka] --> F[Filter] --> T[Transformer] --> R[Router] --> Out[Outbound JPA]
+```
 
 ---
 
@@ -10,13 +43,7 @@
 
 **توضیح:**
 
-Spring Integration الگوهای ادغام سازمانی (EIP کتاب Hohpe/Woolf) را پیاده می‌کند: ارتباط بین سیستم‌ها از طریق پیام. مفهوم محوری **Message** (payload + headers) که از طریق **MessageChannel** بین components جریان می‌یابد. componentها: **ServiceActivator** (پردازش)، **Transformer** (تبدیل)، **Filter** (فیلتر)، **Router** (مسیریابی شرطی)، **Splitter/Aggregator** (تقسیم/تجمیع)، **Gateway** (interface POJO برای send/receive).
-
-**MessageChannel** انواع: DirectChannel (sync، همان thread)، QueueChannel (async با buffer)، PublishSubscribeChannel (broadcast). **Adapters** برای اتصال به File، FTP/SFTP، HTTP، JDBC، Kafka، RabbitMQ، Mail.
-
-**چرا مهم است:**
-
-برای pipeline یکپارچه‌سازی پیچیده (مثل ETL، اتصال سیستم‌های legacy) با الگوهای استاندارد. مکمل Apache Camel.
+پیاده‌سازی EIP: ارتباط از طریق **Message** (payload + headers) روی **MessageChannel**. componentها: ServiceActivator، Transformer، Filter، Router، Splitter/Aggregator، Gateway. Channel: DirectChannel (sync) یا QueueChannel (async). Adapters: File، FTP، HTTP، JDBC، Kafka، RabbitMQ.
 
 **مثال کد:**
 
@@ -25,9 +52,9 @@ Spring Integration الگوهای ادغام سازمانی (EIP کتاب Hohpe/
 public IntegrationFlow orderFlow() {
     return IntegrationFlow
         .from(Kafka.messageDrivenChannelAdapter(consumerFactory(), "orders"))
-        .filter(Order.class, o -> o.amount() > 100)   // فیلتر
-        .transform(orderTransformer())                  // تبدیل
-        .route(Order.class, o -> o.type())              // مسیریابی
+        .filter(Order.class, o -> o.amount() > 100)
+        .transform(orderTransformer())
+        .route(Order.class, o -> o.type())
         .handle(Jpa.outboundAdapter(entityManagerFactory))
         .get();
 }
@@ -35,41 +62,41 @@ public IntegrationFlow orderFlow() {
 
 **نکات کلیدی:**
 
-- DirectChannel sync، QueueChannel async — انتخاب بر اساس نیاز.
-- Gateway یک interface POJO تمیز روی messaging می‌دهد.
-- برای ادغام پیچیده مفید؛ برای ساده over-engineering.
+- DirectChannel sync، QueueChannel async.
+- Gateway interface POJO تمیز.
+- برای ادغام پیچیده؛ برای ساده over-engineering.
 
 ---
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: Spring Integration کِی استفاده می‌شود؟
+### سوال ۱: Spring Integration کِی؟
 
 **سطح:** Senior / Lead
 **تکرار:** کم
 
 **جواب کامل:**
 
-Spring Integration برای پیاده‌سازی Enterprise Integration Patterns است: وقتی نیاز به یکپارچه‌سازی چند سیستم با pipeline پیچیده‌ی پیام‌محور دارید (تبدیل، routing شرطی، split/aggregate، اتصال به پروتکل‌های مختلف مثل SFTP/JDBC/Kafka). مناسب برای ETL، اتصال سیستم‌های legacy، و message-driven architecture داخل یک اپ. اما برای موارد ساده over-engineering است؛ یک `@KafkaListener` ساده یا کد مستقیم بهتر است. رقیب آن Apache Camel است که DSL غنی‌تر و connectorهای بیشتری دارد. در عمل، برای flow پیچیده‌ی integration در اکوسیستم Spring مفید است.
+برای EIP: یکپارچه‌سازی چند سیستم با pipeline پیچیده (تبدیل، routing، split/aggregate، پروتکل‌های مختلف). برای ETL، legacy، message-driven. برای ساده over-engineering (یک `@KafkaListener` بهتر). رقیب: Apache Camel.
 
 **نکته مصاحبه:**
 
-Senior می‌داند برای موارد ساده over-engineering است و Camel را به‌عنوان جایگزین می‌شناسد.
+Senior می‌داند برای ساده over-engineering است و Camel را می‌شناسد.
 
 ---
 
-### سوال ۲: تفاوت DirectChannel و QueueChannel؟
+### سوال ۲: DirectChannel در برابر QueueChannel؟
 
 **سطح:** Senior
 **تکرار:** کم
 
 **جواب کامل:**
 
-DirectChannel پیام را به‌صورت **synchronous** و در **همان thread** فرستنده به handler تحویل می‌دهد — مثل فراخوانی متد مستقیم، با transaction propagation حفظ‌شده، اما بدون buffering یا decoupling زمانی. QueueChannel پیام را در یک **buffer** می‌گذارد و یک thread جدا (با Poller) آن را مصرف می‌کند — **asynchronous**، با decoupling فرستنده و گیرنده و امکان throttling، اما transaction قطع می‌شود و نیاز به poller config دارد. انتخاب: DirectChannel برای flow ساده و sync با حفظ transaction؛ QueueChannel برای decoupling و پردازش async.
+DirectChannel sync، همان thread (transaction حفظ، بدون decoupling). QueueChannel buffer + thread جدا (async، decoupling، اما transaction قطع، نیاز poller). ساده/sync → Direct؛ decoupling/async → Queue.
 
 **نکته مصاحبه:**
 
-Senior به حفظ/قطع transaction و sync/async اشاره می‌کند.
+Senior به حفظ/قطع transaction اشاره می‌کند.
 
 ---
 
@@ -78,27 +105,27 @@ Senior به حفظ/قطع transaction و sync/async اشاره می‌کند.
 ### اشتباه ۱: Spring Integration برای موارد ساده
 
 ```text
-❌ پیچیدگی EIP برای یک consumer ساده
-✅ @KafkaListener یا کد مستقیم
+❌ EIP برای یک consumer ساده
+✅ @KafkaListener
 ```
 
-**توضیح:** برای flow ساده over-engineering است.
+**توضیح:** برای ساده over-engineering است.
 
 ---
 
 ### اشتباه ۲: فرض async برای DirectChannel
 
 ```text
-❌ انتظار decoupling از DirectChannel (sync است)
+❌ انتظار decoupling از DirectChannel
 ✅ QueueChannel برای async
 ```
 
-**توضیح:** DirectChannel در همان thread sync اجرا می‌شود.
+**توضیح:** DirectChannel sync است.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
 - EIP با **Architecture (6.1)** و **messaging (8)**.
-- adapters با **Kafka/RabbitMQ (8)** و **File/FTP**.
+- adapters با **Kafka/RabbitMQ (8)**.
 - جایگزین: Apache Camel.

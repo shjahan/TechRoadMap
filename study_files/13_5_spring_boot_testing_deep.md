@@ -1,6 +1,31 @@
 # Spring Boot Testing عمیق — Test Slices، WireMock، Contract Testing
 
-> تست پیشرفته‌ی Spring Boot: test slices برای سرعت، WireMock برای mock کردن HTTP خارجی، Pact برای contract.
+> تست پیشرفته‌ی Spring Boot: test slices برای سرعت، WireMock برای mock کردن HTTP خارجی، Pact برای contract. این فایل با دیاگرام گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Spring Testing Deep))
+    Test Slices
+      WebMvcTest
+      DataJpaTest
+    WireMock
+      mock HTTP
+      تست خطا
+    Contract Testing
+      Pact
+      consumer-driven
+```
 
 ---
 
@@ -10,23 +35,18 @@
 
 **توضیح:**
 
-به‌جای بالا آوردن کل context با `@SpringBootTest` (کند)، test sliceها فقط بخش لازم را load می‌کنند:
-
 | Annotation | چه load می‌شود |
 |-----------|---------------|
-| `@WebMvcTest` | فقط web layer |
+| `@WebMvcTest` | فقط web |
 | `@DataJpaTest` | JPA + DB |
-| `@DataMongoTest` | MongoDB layer |
+| `@DataMongoTest` | MongoDB |
 | `@JsonTest` | Jackson |
-| `@RestClientTest` | REST client |
 | `@SpringBootTest` | کل context |
-
-هر slice فقط beanهای مرتبط را register می‌کند و بقیه را باید mock کنید.
 
 **نکات کلیدی:**
 
 - test slice سریع‌تر و متمرکزتر.
-- `@DataJpaTest` به‌صورت پیش‌فرض transaction را rollback می‌کند.
+- `@DataJpaTest` پیش‌فرض rollback.
 
 ---
 
@@ -34,7 +54,7 @@
 
 **توضیح:**
 
-برای mock کردن سرویس HTTP خارجی در تست. به‌جای فراخوانی واقعی API third-party (که کند، شکننده، و وابسته به دسترسی است)، WireMock یک HTTP server محلی راه می‌اندازد که پاسخ‌های از پیش تعریف‌شده (stub) می‌دهد. برای تست resilience (timeout، 500) هم عالی است.
+mock کردن HTTP خارجی. به‌جای فراخوانی واقعی، server محلی با پاسخ stub. برای تست resilience (timeout، 500).
 
 **مثال کد:**
 
@@ -42,16 +62,12 @@
 @WireMockTest
 class PaymentServiceTest {
     @Test
-    void shouldHandlePaymentSuccess(WireMockRuntimeInfo wm) {
-        stubFor(post("/charge")
-            .willReturn(ok().withBody("{\"status\":\"success\"}")));
-        // فراخوانی به wm.getHttpBaseUrl() → پاسخ stub
+    void shouldHandleSuccess(WireMockRuntimeInfo wm) {
+        stubFor(post("/charge").willReturn(ok().withBody("{\"status\":\"success\"}")));
     }
-
     @Test
     void shouldHandleTimeout(WireMockRuntimeInfo wm) {
-        stubFor(post("/charge").willReturn(aResponse().withFixedDelay(5000)));
-        // تست رفتار circuit breaker / timeout
+        stubFor(post("/charge").willReturn(aResponse().withFixedDelay(5000))); // تست circuit breaker
     }
 }
 ```
@@ -59,7 +75,7 @@ class PaymentServiceTest {
 **نکات کلیدی:**
 
 - WireMock تست را از سرویس خارجی مستقل می‌کند.
-- برای تست سناریوهای خطا (timeout، 5xx) عالی.
+- برای تست سناریوهای خطا عالی.
 
 ---
 
@@ -67,73 +83,80 @@ class PaymentServiceTest {
 
 **توضیح:**
 
-در microservices، تغییر API یک سرویس می‌تواند مصرف‌کننده را بشکند. **Consumer-driven contracts** (Pact): consumer انتظاراتش را به‌صورت contract تعریف می‌کند؛ provider در تست خود verify می‌کند که contract را برآورده می‌کند. این breaking change را قبل از deploy می‌گیرد بدون نیاز به E2E کامل.
+**Consumer-driven contracts**: consumer انتظاراتش را به‌صورت contract تعریف می‌کند؛ provider در تست خود verify می‌کند. breaking change را قبل از deploy می‌گیرد بدون E2E کامل.
+
+```mermaid
+flowchart LR
+    Consumer[Consumer: contract] --> Pact[(Pact Broker)]
+    Pact --> Provider[Provider: verify]
+    Provider -->|fail اگر breaking| Build[build fail]
+```
 
 **نکات کلیدی:**
 
-- contract testing breaking change بین سرویس‌ها را زود می‌گیرد.
-- سبک‌تر از E2E، متمرکز بر قرارداد API.
+- contract testing breaking change را زود می‌گیرد.
+- سبک‌تر از E2E.
 
 ---
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: چرا WireMock به‌جای فراخوانی واقعی API خارجی در تست؟
+### سوال ۱: چرا WireMock به‌جای فراخوانی واقعی؟
 
 **سطح:** Senior
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-فراخوانی واقعی API third-party در تست مشکلات دارد: کند است (latency شبکه)، **شکننده** (اگر سرویس خارجی down یا کند باشد تست fail می‌شود — flaky)، وابسته به دسترسی شبکه و credential، و نمی‌توان سناریوهای خطا را به‌سادگی تست کرد. WireMock یک HTTP server محلی با پاسخ‌های stub راه می‌اندازد، پس تست سریع، قطعی، و مستقل است. مهم‌تر: می‌توان سناریوهای سخت مثل timeout، 500، یا پاسخ نامعتبر را شبیه‌سازی کرد تا رفتار resilience (circuit breaker، retry، fallback) را تست کرد — که با API واقعی تقریباً غیرممکن است. trade-off: WireMock رفتار واقعی API را تضمین نمی‌کند (برای آن contract testing لازم است).
+فراخوانی واقعی کند، flaky (سرویس down/کند)، وابسته به شبکه/credential، و تست سناریوی خطا سخت. WireMock server محلی با stub → سریع، قطعی، مستقل، و امکان شبیه‌سازی timeout/500 برای تست resilience. trade-off: رفتار واقعی API را تضمین نمی‌کند (برای آن contract testing).
 
 **نکته مصاحبه:**
 
-Senior به تست سناریوهای خطا و محدودیت (عدم تضمین رفتار واقعی) اشاره می‌کند.
+Senior به تست خطا و محدودیت اشاره می‌کند.
 
 ---
 
-### سوال ۲: contract testing چه مشکلی را حل می‌کند؟
+### سوال ۲: contract testing چه مشکلی حل می‌کند؟
 
 **سطح:** Senior / Lead
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-در microservices، سرویس A (consumer) به API سرویس B (provider) وابسته است. اگر B یک تغییر شکست‌دهنده (حذف فیلد، تغییر type) بدهد، A در production می‌شکند — اما unit testهای جداگانه‌ی هر سرویس این را نمی‌گیرند و E2E کامل کند و شکننده است. contract testing (Pact، consumer-driven) این فاصله را پر می‌کند: consumer انتظاراتش از API را به‌صورت یک contract مستند می‌کند؛ provider در pipeline خود verify می‌کند که هنوز آن contract را برآورده می‌کند. اگر تغییر provider contract را بشکند، build او fail می‌شود — breaking change قبل از deploy گرفته می‌شود، بدون نیاز به بالا آوردن همه‌ی سرویس‌ها با هم. این تعادل بین unit (سریع اما ناکافی) و E2E (کامل اما کند) است.
+در microservices، تغییر API سرویس B می‌تواند consumer A را بشکند؛ unit جداگانه نمی‌گیرد، E2E کند/شکننده. contract testing (Pact): consumer انتظارات را مستند می‌کند، provider در pipeline verify می‌کند. breaking change قبل از deploy گرفته می‌شود بدون بالا آوردن همه. تعادل بین unit و E2E.
 
 **نکته مصاحبه:**
 
-Lead به جایگاه contract testing بین unit و E2E اشاره می‌کند.
+Lead به جایگاه بین unit و E2E اشاره می‌کند.
 
 ---
 
 ## ⚠️ اشتباهات رایج
 
-### اشتباه ۱: فراخوانی واقعی API خارجی در تست
+### اشتباه ۱: فراخوانی واقعی API خارجی
 
 ```text
-❌ تست flaky و وابسته به سرویس خارجی
-✅ WireMock برای mock HTTP
+❌ تست flaky و وابسته
+✅ WireMock
 ```
 
 **توضیح:** API واقعی تست را شکننده می‌کند.
 
 ---
 
-### اشتباه ۲: تکیه‌ی کامل بر E2E برای microservices
+### اشتباه ۲: تکیه‌ی کامل بر E2E
 
 ```text
-❌ E2E کند و شکننده برای همه‌ی سناریوها
-✅ contract testing برای API contracts + unit
+❌ E2E برای همه‌ی سناریوها
+✅ contract testing + unit
 ```
 
-**توضیح:** E2E گران است؛ contract testing مکمل بهتری است.
+**توضیح:** E2E گران است.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
 - test slices با **Testing (12.5)** و **CI/CD (10.3)**.
-- WireMock با **resilience4j (2.6)** (تست circuit breaker).
+- WireMock با **resilience4j (2.6)**.
 - contract testing با **microservices (6.1)** و **API versioning**.
