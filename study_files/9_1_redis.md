@@ -1,6 +1,39 @@
 # Redis — Data Types، Patterns، Persistence، HA، Spring Cache
 
-> Redis محبوب‌ترین in-memory store است. data structureها و الگوهای caching/lock در مصاحبه‌ها پرسیده می‌شوند.
+> Redis محبوب‌ترین in-memory store است. data structureها و الگوهای caching/lock در مصاحبه‌ها پرسیده می‌شوند. این فایل با دیاگرام و مثال‌های متعدد گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Redis))
+    Data Types
+      String/List/Set
+      Sorted Set
+      Hash/Stream
+      HyperLogLog/Bitmap
+    Patterns
+      session store
+      rate limiting
+      distributed lock
+      leaderboard
+    Persistence
+      RDB
+      AOF
+    HA
+      Sentinel
+      Cluster
+    Spring Cache
+```
 
 ---
 
@@ -10,37 +43,21 @@
 
 **توضیح:**
 
-Redis یک in-memory data structure store است (نه فقط key-value ساده). انواع:
-
-- **String:** ساده‌ترین؛ `SET`, `GET`, `INCR` (atomic counter)، `EXPIRE`/`TTL`.
-- **List:** لیست پیوندی؛ `LPUSH`/`RPUSH`, `LRANGE`, `BLPOP` (blocking — برای job queue).
-- **Set:** مجموعه‌ی یکتا؛ `SADD`, `SINTER` (اشتراک)، `SUNION`.
-- **Sorted Set (ZSet):** عناصر با score مرتب؛ `ZADD`, `ZRANGE`, `ZRANGEBYSCORE` — برای leaderboard، rate limiting، priority queue.
-- **Hash:** map فیلد→مقدار؛ `HSET`, `HGET` — برای object.
-- **Stream:** append-only log مشابه Kafka سبک.
-- **Pub/Sub:** messaging real-time.
-- **HyperLogLog:** تخمین تعداد یکتا با حافظه‌ی کم.
-- **Bitmap:** عملیات bitwise.
-
-**چرا مهم است:**
-
-انتخاب data type درست الگوی استفاده را تعیین می‌کند. Sorted Set ابزار قدرتمندی برای leaderboard و rate limiting است.
+in-memory data structure store. **String** (`INCR`, `EXPIRE`)، **List** (`LPUSH`, `BLPOP`)، **Set** (`SADD`, `SINTER`)، **Sorted Set/ZSet** (`ZADD`, `ZRANGE` — leaderboard، rate limiting)، **Hash**، **Stream** (مثل Kafka سبک)، **Pub/Sub**، **HyperLogLog** (تخمین یکتا)، **Bitmap**.
 
 **مثال کد:**
 
 ```bash
-# atomic counter با expiry (مثلاً rate limit شمارنده)
 INCR api:user:123:count
 EXPIRE api:user:123:count 60
 
-# leaderboard با Sorted Set
 ZADD leaderboard 1500 "player1"
 ZREVRANGE leaderboard 0 9 WITHSCORES  # top 10
 ```
 
 **نکات کلیدی:**
 
-- Redis single-threaded است (برای دستورات data)؛ عملیات atomic بدون lock.
+- Redis single-threaded (دستورات data)؛ atomic بدون lock.
 - Sorted Set برای leaderboard، rate limiting، delayed queue.
 - همیشه برای cache TTL بگذارید.
 
@@ -50,34 +67,31 @@ ZREVRANGE leaderboard 0 9 WITHSCORES  # top 10
 
 **توضیح:**
 
-- **Session Store:** session توزیع‌شده برای horizontal scaling.
-- **Rate Limiting:** با sliding window (Sorted Set) یا counter + expire.
-- **Distributed Lock:** `SET key value NX PX ttl` (atomic، با TTL برای جلوگیری از deadlock). برای دقت بالا، **Redlock** algorithm.
-- **Cache-Aside / Write-Through.**
-- **Leaderboard:** Sorted Set.
-- **Job Queue:** List با `BLPOP`.
-- **Pub/Sub:** messaging سبک.
+Session Store، Rate Limiting (sliding window با ZSet)، **Distributed Lock** (`SET key value NX PX ttl`؛ Redlock)، Cache-Aside، Write-Through، Leaderboard، Job Queue (`BLPOP`).
+
+```mermaid
+flowchart LR
+    Acq["SET lock val NX PX ttl"] -->|true| Critical[بخش بحرانی]
+    Critical --> Rel["release با Lua: اگر token خودمان"]
+    Acq -->|false| Wait[منتظر/قدیمی]
+```
 
 **مثال کد:**
 
 ```java
-// distributed lock با SET NX PX
 String token = UUID.randomUUID().toString();
 Boolean acquired = redis.opsForValue()
     .setIfAbsent("lock:order:1", token, Duration.ofSeconds(10)); // NX + PX
 if (Boolean.TRUE.equals(acquired)) {
     try { /* بخش بحرانی */ }
-    finally {
-        // آزادسازی امن: فقط اگر token خودمان است (با Lua برای atomicity)
-    }
+    finally { /* release atomic با Lua، فقط اگر token خودمان */ }
 }
 ```
 
 **نکات کلیدی:**
 
-- distributed lock باید TTL داشته باشد (وگرنه crash holder = deadlock).
-- آزادسازی lock باید atomic و فقط توسط صاحب باشد (Lua script).
-- Redlock برای محیط multi-node اما محل بحث است.
+- distributed lock باید TTL داشته باشد (وگرنه crash = deadlock).
+- آزادسازی atomic و فقط توسط صاحب (Lua).
 
 ---
 
@@ -85,16 +99,14 @@ if (Boolean.TRUE.equals(acquired)) {
 
 **توضیح:**
 
-Redis in-memory است اما می‌تواند persist کند:
-
-- **RDB (Snapshot):** dump دوره‌ای point-in-time. کم‌سربار، startup سریع، اما احتمال data loss بین snapshotها.
-- **AOF (Append Only File):** هر write را log می‌کند. کامل‌تر (کمتر loss)، اما کندتر و فایل بزرگ‌تر.
-- **Hybrid** (Redis 4+): RDB + AOF.
+- **RDB:** snapshot دوره‌ای، کم‌سربار، احتمال loss.
+- **AOF:** هر write log، کامل‌تر، کندتر.
+- **Hybrid** (4+).
 
 **نکات کلیدی:**
 
-- RDB برای backup سریع؛ AOF برای durability بهتر.
-- Redis معمولاً به‌عنوان cache (نه source of truth) استفاده می‌شود؛ data loss قابل‌تحمل.
+- RDB برای backup؛ AOF برای durability.
+- Redis معمولاً cache (نه source of truth).
 
 ---
 
@@ -102,14 +114,19 @@ Redis in-memory است اما می‌تواند persist کند:
 
 **توضیح:**
 
-- **Sentinel:** automatic failover برای primary/replica (monitoring + election).
-- **Redis Cluster:** sharding خودکار با ۱۶۳۸۴ hash slot؛ scale افقی.
-- **Valkey:** fork متن‌باز Redis پس از تغییر license (۲۰۲۴).
+**Sentinel** (failover خودکار primary/replica)، **Redis Cluster** (sharding، ۱۶۳۸۴ slot)، **Valkey** (fork پس از license).
+
+```mermaid
+flowchart TB
+    Sentinel -.->|monitor/failover| P[(Primary)]
+    P -->|replication| R1[(Replica)]
+    P -->|replication| R2[(Replica)]
+```
 
 **نکات کلیدی:**
 
-- Sentinel برای HA؛ Cluster برای sharding + HA.
-- replication async است → احتمال loss کوچک هنگام failover.
+- Sentinel برای HA؛ Cluster برای sharding+HA.
+- replication async → احتمال loss هنگام failover.
 
 ---
 
@@ -117,7 +134,7 @@ Redis in-memory است اما می‌تواند persist کند:
 
 **توضیح:**
 
-Spring abstraction روی cache با annotation: `@Cacheable` (نتیجه را cache می‌کند)، `@CachePut` (همیشه اجرا و cache را به‌روز می‌کند)، `@CacheEvict` (حذف از cache). با Redis به‌عنوان provider.
+`@Cacheable`, `@CachePut`, `@CacheEvict` با Redis.
 
 **مثال کد:**
 
@@ -131,80 +148,76 @@ public void update(User user) { repository.save(user); }
 
 **نکات کلیدی:**
 
-- `@Cacheable` با AOP کار می‌کند → self-invocation اعمال نمی‌شود.
-- TTL را در پیکربندی cache manager تنظیم کنید.
-- کلید cache را دقیق تعریف کنید تا collision نشود.
+- با AOP کار می‌کند → self-invocation اعمال نمی‌شود.
+- TTL را در cache manager تنظیم کنید.
 
 ---
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: distributed lock با Redis چطور پیاده می‌کنی و چه تله‌هایی دارد؟
+### سوال ۱: distributed lock با Redis و تله‌ها؟
 
 **سطح:** Senior / Lead
 **تکرار:** زیاد
 
 **جواب کامل:**
 
-اصل: `SET key value NX PX ttl` — `NX` یعنی فقط اگر کلید وجود ندارد (atomic acquire)، `PX ttl` یعنی expiry خودکار. value یک token یکتا (UUID) است تا فقط صاحب بتواند آزاد کند. تله‌ها: (۱) **بدون TTL** اگر holder crash کند، lock برای همیشه می‌ماند (deadlock). (۲) **آزادسازی غیراتمیک**: اگر فقط `DEL key` بزنید بدون چک token، ممکن lock کسی دیگر را که در این فاصله گرفته آزاد کنید — باید با Lua script (چک token + del اتمیک) آزاد کنید. (۳) **TTL کوتاه‌تر از کار**: اگر کار طولانی‌تر از TTL شود، lock منقضی و دو نفر همزمان وارد می‌شوند — راه‌حل: watchdog که TTL را تمدید می‌کند (مثل Redisson). (۴) در محیط multi-master، Redlock مطرح است اما بحث‌برانگیز.
+`SET key value NX PX ttl` — NX (atomic acquire)، PX (expiry)، value=token یکتا. تله‌ها: (۱) بدون TTL → crash = deadlock. (۲) آزادسازی غیراتمیک (DEL بدون چک token می‌تواند lock دیگری را آزاد کند) → Lua. (۳) TTL کوتاه‌تر از کار → دو نفر همزمان → watchdog (Redisson). (۴) Redlock در multi-master بحث‌برانگیز.
 
 **کد توضیحی:**
 
 ```lua
--- آزادسازی atomic: فقط اگر token خودمان باشد
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("del", KEYS[1])
-else return 0 end
+if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end
 ```
 
 **نکته مصاحبه:**
 
-تمایز Lead: token برای آزادسازی امن، Lua برای atomicity، watchdog برای کار طولانی. Follow-up: «Redlock چرا بحث‌برانگیز است؟»
+Lead: token، Lua، watchdog.
 
 ---
 
-### سوال ۲: cache invalidation strategy و مشکلاتش؟
+### سوال ۲: cache invalidation strategy و مشکلات؟
 
 **سطح:** Senior / Lead
 **تکرار:** زیاد
 
 **جواب کامل:**
 
-«cache invalidation یکی از دو مسئله‌ی سخت علوم کامپیوتر است». استراتژی‌ها: (۱) **TTL-based**: ساده، اما داده‌ی stale تا expiry. (۲) **write-through/write-around**: هنگام نوشتن، cache را به‌روز/حذف کنید — consistency بهتر اما coupling. (۳) **event-based**: با تغییر داده، event منتشر و cache invalidate شود (با Kafka/pub-sub در سیستم توزیع‌شده). مشکلات: stale data، race condition بین update DB و cache (یک thread قدیمی را می‌نویسد بعد از جدید)، و cache stampede هنگام invalidation همزمان. راه‌حل race: حذف cache به‌جای update (lazy reload)، و TTL به‌عنوان safety net. در سیستم توزیع‌شده، invalidation همه‌ی nodeها چالش است (pub/sub).
+استراتژی‌ها: TTL-based، write-through/around، event-based (با Kafka/pub-sub). مشکلات: stale، race condition (نوشتن قدیمی روی جدید)، stampede. راه‌حل race: delete به‌جای update (lazy reload) + TTL safety net. در توزیع‌شده، invalidation همه‌ی nodeها چالش (pub/sub).
 
 **نکته مصاحبه:**
 
-Lead به race condition update و راه‌حل «delete به‌جای update» اشاره می‌کند.
+Lead به race و «delete به‌جای update» اشاره می‌کند.
 
 ---
 
-### سوال ۳: چرا Redis single-threaded است و چطور سریع است؟
+### سوال ۳: چرا Redis single-threaded و چطور سریع؟
 
 **سطح:** Senior
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-Redis دستورات data را در یک thread واحد پردازش می‌کند (هرچند I/O و برخی کارها در نسخه‌های جدید multi-thread است). دلیل سرعت با وجود single-thread: (۱) همه‌چیز in-memory است (بدون disk I/O در مسیر اصلی). (۲) single-thread یعنی بدون lock، context switch، یا race condition — هر دستور atomic است که هم سریع و هم ساده است. (۳) event loop غیرمسدودکننده (epoll). (۴) data structureهای بهینه. مزیت جانبی: عملیات مثل `INCR` ذاتاً atomic‌اند بدون نیاز به lock. محدودیت: یک دستور کند (مثل `KEYS *` روی dataset بزرگ) کل سرور را بلاک می‌کند — باید از دستورات O(n) بزرگ پرهیز کرد.
+دستورات data در یک thread. سرعت: (۱) in-memory. (۲) بدون lock/context switch/race — هر دستور atomic. (۳) event loop غیرمسدودکننده. (۴) data structure بهینه. مزیت: `INCR` ذاتاً atomic. محدودیت: دستور کند (`KEYS *`) کل سرور را بلاک می‌کند.
 
 **نکته مصاحبه:**
 
-Senior به atomicity رایگان و خطر دستورات بلاک‌کننده (`KEYS *`) اشاره می‌کند.
+Senior به atomicity رایگان و خطر `KEYS *` اشاره می‌کند.
 
 ---
 
-### سوال ۴: RDB در برابر AOF — کدام؟
+### سوال ۴: RDB در برابر AOF؟
 
 **سطح:** Senior
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-RDB یک snapshot دوره‌ای point-in-time است: فایل فشرده، startup سریع، کم‌سربار، اما اگر بین دو snapshot crash شود، داده‌ی آن بازه گم می‌شود. AOF هر دستور write را در فایل log می‌کند: durability بهتر (بسته به fsync policy، حداکثر ۱ ثانیه loss)، اما فایل بزرگ‌تر و startup کندتر (replay). Redis 4+ از hybrid پشتیبانی می‌کند (RDB base + AOF برای تغییرات اخیر). انتخاب: اگر Redis به‌عنوان cache است و loss قابل‌تحمل، RDB کافی؛ اگر به‌عنوان source of truth یا durability مهم است، AOF (یا hybrid). اکثر کاربردهای cache با RDB راحت‌اند.
+RDB snapshot دوره‌ای: startup سریع، کم‌سربار، اما loss بین snapshot. AOF هر write log: durability بهتر، اما فایل بزرگ‌تر و startup کندتر. hybrid (4+). cache → RDB؛ source of truth/durability → AOF.
 
 **نکته مصاحبه:**
 
-Senior به نقش Redis (cache در برابر datastore) برای انتخاب اشاره می‌کند.
+Senior به نقش Redis (cache/datastore) اشاره می‌کند.
 
 ---
 
@@ -213,39 +226,39 @@ Senior به نقش Redis (cache در برابر datastore) برای انتخاب
 ### اشتباه ۱: distributed lock بدون TTL
 
 ```java
-// ❌ اگر holder crash کند، lock ابدی
+// ❌
 redis.opsForValue().setIfAbsent("lock", token);
 ```
 
 ```java
-// ✅ با TTL
+// ✅
 redis.opsForValue().setIfAbsent("lock", token, Duration.ofSeconds(10));
 ```
 
-**توضیح:** بدون TTL، crash منجر به deadlock می‌شود.
+**توضیح:** بدون TTL، crash = deadlock.
 
 ---
 
 ### اشتباه ۲: `KEYS *` در production
 
 ```bash
-# ❌ کل سرور را بلاک می‌کند (O(n))
+# ❌
 KEYS user:*
 ```
 
 ```bash
-# ✅ SCAN با cursor (non-blocking)
+# ✅
 SCAN 0 MATCH user:* COUNT 100
 ```
 
-**توضیح:** `KEYS` single-thread را روی dataset بزرگ بلاک می‌کند.
+**توضیح:** `KEYS` single-thread را بلاک می‌کند.
 
 ---
 
 ### اشتباه ۳: cache بدون TTL
 
 ```java
-// ❌ داده‌ی stale برای همیشه + رشد نامحدود حافظه
+// ❌
 redis.opsForValue().set(key, value);
 ```
 
@@ -254,25 +267,25 @@ redis.opsForValue().set(key, value);
 redis.opsForValue().set(key, value, Duration.ofMinutes(10));
 ```
 
-**توضیح:** بدون TTL، حافظه پر می‌شود و stale می‌ماند.
+**توضیح:** بدون TTL، حافظه پر و stale می‌ماند.
 
 ---
 
 ### اشتباه ۴: update cache به‌جای delete
 
 ```text
-❌ update cache هنگام write → race condition (نوشتن مقدار قدیمی روی جدید)
-✅ delete cache → بار بعد از DB lazy reload
+❌ update → race condition
+✅ delete → lazy reload
 ```
 
-**توضیح:** delete از race condition جلوگیری می‌کند.
+**توضیح:** delete از race جلوگیری می‌کند.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- caching strategy با **System Design (6.2)** (cache-aside، stampede).
-- distributed lock با **PostgreSQL advisory lock (3.3)** و **concurrency**.
+- caching strategy با **System Design (6.2)**.
+- distributed lock با **PostgreSQL advisory lock (3.3)**.
 - Spring Cache با **AOP/`@Cacheable` (2.1, 2.4)**.
-- rate limiting با **API Gateway (2.6)** و **System Design**.
+- rate limiting با **API Gateway (2.6)**.
 - JWT blacklist با **Security (7.2)**.
