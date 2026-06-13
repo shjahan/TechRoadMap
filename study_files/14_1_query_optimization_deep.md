@@ -1,6 +1,51 @@
 # Query Optimization عمیق — EXPLAIN، Plan Nodes، Index Design، Partitioning
 
-> تحلیل عمیق query plan و طراحی index پیشرفته. مهارت کلیدی برای حل مشکلات performance واقعی.
+> تحلیل عمیق query plan و طراحی index پیشرفته. مهارت کلیدی برای حل مشکلات performance واقعی. این فایل با دیاگرام گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Query Optimization))
+    EXPLAIN
+      scan types
+      join types
+      statistics
+    Index Design
+      ESR
+      partial/covering
+    Problems
+      N+1
+      bloat
+      bad stats
+    Partitioning
+      Range/List/Hash
+      pruning
+```
+
+---
+
+## فرایند دیباگ query کند
+
+```mermaid
+flowchart TD
+    Slow[Query کند] --> Explain[EXPLAIN ANALYZE]
+    Explain --> SeqScan{Seq Scan روی جدول بزرگ؟}
+    SeqScan -->|بله| Index[افزودن index]
+    Explain --> Stats{rows تخمینی != واقعی؟}
+    Stats -->|بله| Analyze[ANALYZE]
+    Explain --> Join{Nested Loop روی بزرگ؟}
+    Join -->|بله| Rewrite[بازنویسی/index]
+```
 
 ---
 
@@ -10,38 +55,21 @@
 
 **توضیح:**
 
-`EXPLAIN (ANALYZE, BUFFERS)` نقشه‌ی اجرا را با زمان و I/O واقعی نشان می‌دهد. plan node‌های مهم:
-
-- **Seq Scan:** کل جدول — بد برای جدول بزرگ.
-- **Index Scan:** از index، سپس heap fetch.
-- **Index Only Scan:** فقط index (covering) — بهترین.
-- **Bitmap Heap Scan:** ترکیب چند index برای فیلتر.
-- **Nested Loop:** برای result کوچک.
-- **Hash Join:** برای result بزرگ (نیاز memory).
-- **Merge Join:** برای داده‌ی مرتب.
-
-`cost=X..Y` (X: startup، Y: total تخمینی)، `actual time=...rows=...loops=...` (واقعی). اختلاف زیاد rows تخمینی و واقعی = آمار قدیمی.
-
-**چرا مهم است:**
-
-تشخیص علت کندی query (Seq Scan، join اشتباه، آمار قدیمی) و رفع آن مهارت کلیدی Senior است.
+`EXPLAIN (ANALYZE, BUFFERS)`. node: **Seq Scan** (بد)، **Index Scan**، **Index Only Scan** (بهترین)، **Bitmap Scan**، Nested Loop (small)، Hash Join (large)، Merge Join (sorted). `cost=X..Y`، `actual time=...rows=...`. اختلاف rows تخمینی/واقعی = آمار قدیمی.
 
 **مثال کد:**
 
 ```sql
 EXPLAIN (ANALYZE, BUFFERS)
-SELECT u.name, COUNT(o.id)
-FROM users u LEFT JOIN orders o ON o.user_id = u.id
-WHERE u.created_at > '2024-01-01'
-GROUP BY u.name;
--- بررسی: Seq Scan روی جدول بزرگ؟ join type؟ rows تخمینی در برابر واقعی؟
+SELECT u.name, COUNT(o.id) FROM users u LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.created_at > '2024-01-01' GROUP BY u.name;
 ```
 
 **نکات کلیدی:**
 
-- `BUFFERS` مقدار I/O (shared hit/read) را نشان می‌دهد.
-- Nested Loop روی result بزرگ = مشکل (احتمالاً index یا آمار).
-- اختلاف rows تخمینی/واقعی → `ANALYZE`.
+- `BUFFERS` مقدار I/O را نشان می‌دهد.
+- Nested Loop روی نتیجه‌ی بزرگ = مشکل.
+- اختلاف rows → `ANALYZE`.
 
 ---
 
@@ -49,32 +77,22 @@ GROUP BY u.name;
 
 **توضیح:**
 
-- **Composite (ESR rule):** Equality، Sort، Range به همین ترتیب.
-- **Partial index:** فقط زیرمجموعه (`WHERE active = true`).
-- **Covering index:** با `INCLUDE` برای index-only scan.
-- **Expression index:** روی `LOWER(email)` یا محاسبه.
+Composite (**ESR**: Equality, Sort, Range)، Partial، Covering (`INCLUDE`)، Expression.
 
 **مثال کد:**
 
 ```sql
--- composite: status (equality) سپس created_at (range)
-CREATE INDEX idx_orders ON orders(status, created_at DESC);
-
--- partial: فقط active
-CREATE INDEX idx_active ON users(email) WHERE active = true;
-
--- covering: index-only
-CREATE INDEX idx_cover ON orders(user_id) INCLUDE (amount, status);
-
--- expression
-CREATE INDEX idx_lower ON users(LOWER(email));
+CREATE INDEX idx_orders ON orders(status, created_at DESC); -- equality، range
+CREATE INDEX idx_active ON users(email) WHERE active = true; -- partial
+CREATE INDEX idx_cover ON orders(user_id) INCLUDE (amount, status); -- covering
+CREATE INDEX idx_lower ON users(LOWER(email)); -- expression
 ```
 
 **نکات کلیدی:**
 
-- ESR rule برای ترتیب composite.
-- partial index کوچک‌تر و سریع‌تر برای فیلتر ثابت.
-- expression index برای function در WHERE.
+- ESR برای ترتیب composite.
+- partial برای فیلتر ثابت.
+- expression برای function در WHERE.
 
 ---
 
@@ -82,100 +100,97 @@ CREATE INDEX idx_lower ON users(LOWER(email));
 
 **توضیح:**
 
-مشکلات: **N+1** (با JOIN FETCH/EntityGraph/batch)، **Missing Index** (EXPLAIN نشان می‌دهد)، **Over-indexing** (write کند)، **Bloat** (dead tuple بعد از UPDATE/DELETE، با VACUUM)، **Lock Contention** (`pg_locks`)، **Bad Statistics** (`ANALYZE`).
-
-**Partitioning** جدول بزرگ را به بخش‌های فیزیکی کوچک‌تر تقسیم می‌کند (Range بر اساس تاریخ، List، Hash). مزایا: partition pruning (query فقط partition مرتبط را اسکن می‌کند)، مدیریت آسان‌تر (drop partition قدیمی به‌جای DELETE)، VACUUM سریع‌تر.
+N+1، Missing Index، Over-indexing، Bloat (VACUUM)، Lock Contention، Bad Statistics. **Partitioning** (Range/List/Hash) → **partition pruning** (فقط partition مرتبط)، drop partition آسان، VACUUM سریع‌تر.
 
 **مثال کد:**
 
 ```sql
 CREATE TABLE orders (id BIGINT, created_at TIMESTAMP, amount DECIMAL)
     PARTITION BY RANGE (created_at);
-CREATE TABLE orders_2024 PARTITION OF orders
-    FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+CREATE TABLE orders_2024 PARTITION OF orders FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
 ```
 
 **نکات کلیدی:**
 
 - partition pruning فقط partition مرتبط را اسکن می‌کند.
-- drop partition برای حذف داده‌ی قدیمی بسیار سریع‌تر از DELETE.
+- drop partition برای حذف داده‌ی قدیمی سریع‌تر از DELETE.
 
 ---
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: یک query کند را چطور دیباگ می‌کنی؟ (فرایند کامل)
+### سوال ۱: یک query کند را چطور دیباگ می‌کنی؟
 
 **سطح:** Senior / Lead
 **تکرار:** خیلی زیاد
 
 **جواب کامل:**
 
-فرایند سیستماتیک: (۱) `EXPLAIN (ANALYZE, BUFFERS)` query را اجرا کنید. (۲) دنبال **Seq Scan** روی جدول بزرگ بگردید → نشانه‌ی index کم. (۳) اختلاف بین **rows تخمینی و واقعی** را چک کنید → آمار قدیمی، `ANALYZE` بزنید. (۴) **join type** را بررسی کنید: Nested Loop روی result بزرگ معمولاً بد است. (۵) **BUFFERS** را ببینید: read بالا یعنی داده در cache نیست. (۶) چک کنید آیا index موجود استفاده می‌شود (شاید function در WHERE یا type mismatch مانع شده). (۷) برای N+1، تعداد query را با ابزار (p6spy، pg_stat_statements) بشمارید. سپس راه‌حل: افزودن index مناسب (با ESR)، بازنویسی query، ANALYZE، یا partitioning. همیشه قبل/بعد را با EXPLAIN ANALYZE مقایسه کنید نه حدس.
+(۱) `EXPLAIN (ANALYZE, BUFFERS)`. (۲) Seq Scan روی بزرگ → index. (۳) اختلاف rows تخمینی/واقعی → `ANALYZE`. (۴) Nested Loop روی بزرگ → بد. (۵) BUFFERS (read بالا = cache نیست). (۶) چرا index استفاده نمی‌شود (function، type mismatch، selectivity). (۷) N+1 با p6spy/pg_stat_statements. قبل/بعد با EXPLAIN مقایسه کنید.
 
 **نکته مصاحبه:**
 
-Lead فرایند سیستماتیک با ابزار مشخص دارد، نه حدس. Follow-up: «چرا index موجود استفاده نمی‌شود؟» (function در WHERE، type mismatch، آمار، selectivity پایین).
+Lead فرایند سیستماتیک دارد. Follow-up: «چرا index استفاده نمی‌شود؟»
 
 ---
 
-### سوال ۲: partition pruning چیست و چه مزیتی دارد؟
+### سوال ۲: partition pruning چیست؟
 
 **سطح:** Senior / Lead
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-partition pruning یعنی query planner فقط partitionهای مرتبط با شرط query را اسکن می‌کند و بقیه را نادیده می‌گیرد. مثلاً اگر جدول orders بر اساس `created_at` به ماه partition شده باشد و query فقط ماه جاری را بخواهد، فقط partition آن ماه اسکن می‌شود نه کل تاریخچه. مزایا: کاهش چشمگیر داده‌ی اسکن‌شده (performance)، index هر partition کوچک‌تر و کارآمدتر، و مدیریت آسان (حذف داده‌ی قدیمی با `DROP TABLE partition` به‌جای `DELETE` گران و bloat‌ساز). شرط: شرط query باید روی partition key باشد وگرنه pruning رخ نمی‌دهد و همه‌ی partitionها اسکن می‌شوند.
+planner فقط partitionهای مرتبط با شرط را اسکن می‌کند. مزایا: داده‌ی کمتر، index هر partition کوچک‌تر، drop partition آسان. شرط: query روی partition key وگرنه همه اسکن می‌شوند.
 
 **نکته مصاحبه:**
 
-Senior به شرط «query روی partition key» و مزیت drop partition اشاره می‌کند.
+Senior به شرط «query روی partition key» اشاره می‌کند.
 
 ---
 
-### سوال ۳: bloat چیست و چطور با آن مقابله می‌کنی؟
+### سوال ۳: bloat چیست و چطور مقابله؟
 
 **سطح:** Senior
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-به‌خاطر MVCC، هر UPDATE/DELETE نسخه‌های قدیمی (dead tuple) باقی می‌گذارد که فضا اشغال می‌کنند اما visible نیستند — این bloat است. علائم: جدول/index بزرگ‌تر از داده‌ی واقعی، query کندتر (اسکن صفحات خالی)، I/O بیشتر. مقابله: (۱) **autovacuum** را برای جداول پرتغییر tune کنید (آستانه‌ی پایین‌تر). (۲) `VACUUM` فضا را برای reuse آزاد می‌کند (اما به OS برنمی‌گرداند). (۳) `VACUUM FULL` فضا را به OS برمی‌گرداند اما جدول را قفل می‌کند (downtime) — در production از `pg_repack` (بدون قفل) استفاده کنید. (۴) رصد با `pg_stat_user_tables` (n_dead_tup). پیشگیری: کاهش UPDATE غیرضروری و batch کردن.
+dead tupleها (UPDATE/DELETE با MVCC) فضا اشغال می‌کنند → جدول/index بزرگ و کند. مقابله: autovacuum tuning، `VACUUM` (reuse، نه به OS)، `VACUUM FULL` (به OS اما قفل → `pg_repack`)، رصد با `pg_stat_user_tables`. پیشگیری: کاهش UPDATE غیرضروری.
 
 **نکته مصاحبه:**
 
-Senior به pg_repack به‌جای VACUUM FULL در production اشاره می‌کند.
+Senior به pg_repack اشاره می‌کند.
 
 ---
 
 ## ⚠️ اشتباهات رایج
 
-### اشتباه ۱: index بدون توجه به ESR
+### اشتباه ۱: index بدون ESR
 
 ```sql
--- ❌ range قبل از equality
+-- ❌
 CREATE INDEX ON orders(created_at, status);
 ```
 
 ```sql
--- ✅ equality اول
+-- ✅
 CREATE INDEX ON orders(status, created_at);
 ```
 
-**توضیح:** ESR rule: Equality، Sort، Range.
+**توضیح:** ESR: Equality، Sort، Range.
 
 ---
 
 ### اشتباه ۲: query روی غیر partition key
 
 ```sql
--- ❌ pruning رخ نمی‌دهد، همه partition اسکن
-SELECT * FROM orders WHERE customer_id = 5; -- partition key: created_at
+-- ❌ pruning نمی‌شود
+SELECT * FROM orders WHERE customer_id = 5;
 ```
 
 ```sql
--- ✅ شامل partition key
+-- ✅
 SELECT * FROM orders WHERE created_at >= '2024-06-01' AND customer_id = 5;
 ```
 
@@ -186,12 +201,12 @@ SELECT * FROM orders WHERE created_at >= '2024-06-01' AND customer_id = 5;
 ### اشتباه ۳: VACUUM FULL در production
 
 ```sql
--- ❌ قفل جدول (downtime)
+-- ❌ قفل جدول
 VACUUM FULL orders;
 ```
 
 ```text
-✅ pg_repack یا autovacuum tuning
+✅ pg_repack
 ```
 
 **توضیح:** `VACUUM FULL` exclusive lock می‌گیرد.
@@ -200,7 +215,7 @@ VACUUM FULL orders;
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- query optimization با **Indexing (3.2)** و **PostgreSQL MVCC (3.3)**.
+- با **Indexing (3.2)** و **PostgreSQL MVCC (3.3)**.
 - N+1 با **Spring Data JPA (2.4)**.
-- partitioning با **System Design scaling (6.2)** و **MongoDB sharding (مقایسه)**.
-- bloat با **MVCC و VACUUM (3.3)**.
+- partitioning با **scaling (6.2)** و **MongoDB sharding (مقایسه)**.
+- bloat با **MVCC/VACUUM (3.3)**.
