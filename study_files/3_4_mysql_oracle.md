@@ -1,6 +1,32 @@
 # MySQL / Oracle (مقایسه‌ای)
 
-> آشنایی با تفاوت‌های MySQL و Oracle برای محیط‌هایی که این دیتابیس‌ها استفاده می‌شوند مهم است.
+> آشنایی با تفاوت‌های MySQL و Oracle برای محیط‌هایی که این دیتابیس‌ها استفاده می‌شوند مهم است. این فایل با دیاگرام و مثال‌های بیشتر گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((MySQL & Oracle))
+    MySQL
+      InnoDB vs MyISAM
+      GTID replication
+      MySQL 8 features
+    Oracle
+      ROWNUM vs ROW_NUMBER
+      SEQUENCE
+      CONNECT BY
+      AWR/ASH
+      RAC
+```
 
 ---
 
@@ -10,36 +36,37 @@
 
 **توضیح:**
 
-MySQL معماری pluggable storage engine دارد. دو اصلی:
+MySQL معماری pluggable storage engine دارد:
 
-- **InnoDB** (پیش‌فرض): transactional، ACID، row-level locking، foreign key، crash recovery، MVCC. انتخاب درست برای تقریباً همه موارد.
-- **MyISAM** (قدیمی): بدون transaction، table-level locking، بدون foreign key. سریع برای read-only اما در عمل منسوخ.
+- **InnoDB** (پیش‌فرض): transactional، ACID، row-level locking، foreign key، MVCC. انتخاب درست.
+- **MyISAM** (قدیمی): بدون transaction، table-level locking، بدون FK. منسوخ.
 
-MySQL 8 امکانات مدرن آورد: Window Functions، CTEs (شامل recursive)، roles، invisible indexes (برای تست حذف index بدون drop)، و بهبود JSON.
+MySQL 8: Window Functions، CTEs، roles، invisible indexes، بهبود JSON.
 
-**چرا مهم است:**
-
-انتخاب engine روی transaction و locking تأثیر مستقیم دارد. MyISAM در سیستم‌های جدید نباید استفاده شود.
+```mermaid
+flowchart LR
+    InnoDB["InnoDB: ACID, row lock, FK, MVCC"] --> Modern[انتخاب مدرن]
+    MyISAM["MyISAM: no transaction, table lock"] --> Legacy[منسوخ]
+```
 
 **مثال کد:**
 
 ```sql
--- صریحاً InnoDB
 CREATE TABLE orders (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     amount DECIMAL(12,2),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- invisible index (MySQL 8): تست تأثیر حذف بدون drop واقعی
+-- invisible index (MySQL 8): تست حذف بدون drop
 ALTER TABLE orders ALTER INDEX idx_amount INVISIBLE;
 ```
 
 **نکات کلیدی:**
 
 - همیشه InnoDB برای داده‌ی transactional.
-- MySQL 8 window functions و CTE اضافه کرد (قبلاً نبود).
-- invisible index برای ارزیابی امن حذف index.
+- MySQL 8 window functions و CTE اضافه کرد.
+- invisible index برای ارزیابی امن حذف.
 
 ---
 
@@ -47,12 +74,12 @@ ALTER TABLE orders ALTER INDEX idx_amount INVISIBLE;
 
 **توضیح:**
 
-دو روش: **Binary Log-based** (replica لاگ باینری primary را پخش می‌کند) و **GTID-based** (Global Transaction Identifier — هر transaction شناسه‌ی یکتای جهانی دارد که failover و consistency را ساده می‌کند). slow query log برای یافتن کوئری‌های کند. `EXPLAIN` با فرمت متفاوت از PostgreSQL.
+دو روش: **Binary Log-based** و **GTID-based** (Global Transaction Identifier — هر transaction شناسه‌ی یکتای جهانی که failover را ساده می‌کند). slow query log برای یافتن کوئری کند.
 
 **نکات کلیدی:**
 
 - GTID-based replication مدیریت failover را ساده‌تر می‌کند.
-- slow query log را برای شناسایی کوئری مشکل‌دار فعال کنید.
+- slow query log را فعال کنید.
 
 ---
 
@@ -60,82 +87,74 @@ ALTER TABLE orders ALTER INDEX idx_amount INVISIBLE;
 
 **توضیح:**
 
-Oracle دیتابیس enterprise با ویژگی‌های خاص:
-
-- `ROWNUM` (شماره‌ی ردیف pseudo-column، قبل از ORDER BY اعمال می‌شود — تله‌ی رایج) در برابر `ROW_NUMBER()` (window function، بعد از ORDER BY).
-- `SEQUENCE` با `NEXTVAL`/`CURRVAL` برای تولید شناسه.
-- `CONNECT BY` برای queryهای سلسله‌مراتبی (معادل recursive CTE).
-- Tablespaces، Schemas برای سازماندهی فیزیکی/منطقی.
-- **AWR** (Automatic Workload Repository) و **ASH** (Active Session History) برای گزارش performance.
-- **RAC** (Real Application Clusters) برای HA و scaling افقی با shared storage.
-
-**چرا مهم است:**
-
-در بانک‌ها و سازمان‌های بزرگ Oracle رایج است. درک تفاوت‌ها (مثل ROWNUM) از باگ جلوگیری می‌کند.
+- `ROWNUM` (قبل از ORDER BY اعمال می‌شود — تله) در برابر `ROW_NUMBER()` (window function).
+- `SEQUENCE` با `NEXTVAL`/`CURRVAL`.
+- `CONNECT BY` برای سلسله‌مراتبی (معادل recursive CTE).
+- Tablespaces، Schemas.
+- **AWR/ASH** برای performance.
+- **RAC** برای HA و scaling افقی.
 
 **مثال کد:**
 
 ```sql
--- ❌ تله: ROWNUM قبل از ORDER BY → ۵ ردیف تصادفی سپس مرتب
+-- ❌ تله: ROWNUM قبل از ORDER BY
 SELECT * FROM orders WHERE ROWNUM <= 5 ORDER BY amount DESC;
-
--- ✅ صحیح: ابتدا مرتب، سپس محدود
+-- ✅ subquery مرتب‌شده
 SELECT * FROM (SELECT * FROM orders ORDER BY amount DESC) WHERE ROWNUM <= 5;
--- یا در Oracle 12c+: FETCH FIRST
+-- یا Oracle 12c+: FETCH FIRST
 SELECT * FROM orders ORDER BY amount DESC FETCH FIRST 5 ROWS ONLY;
 
--- sequence
 CREATE SEQUENCE order_seq START WITH 1 INCREMENT BY 1;
 INSERT INTO orders (id) VALUES (order_seq.NEXTVAL);
 ```
 
 **نکات کلیدی:**
 
-- `ROWNUM` قبل از `ORDER BY` اعمال می‌شود → برای top-N از subquery یا `FETCH FIRST`.
-- Oracle 12c+ از `FETCH FIRST N ROWS ONLY` (استاندارد) پشتیبانی می‌کند.
+- `ROWNUM` قبل از `ORDER BY` → برای top-N از subquery یا `FETCH FIRST`.
+- Oracle 12c+ از `FETCH FIRST` استاندارد پشتیبانی می‌کند.
 
 ---
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: InnoDB در برابر MyISAM چه تفاوتی دارد؟
+### سوال ۱: InnoDB در برابر MyISAM؟
 
 **سطح:** Mid / Senior
 **تکرار:** زیاد
 
 **جواب کامل:**
 
-InnoDB transactional است (ACID)، row-level locking دارد (concurrency بالا)، از foreign key و crash recovery پشتیبانی می‌کند و MVCC دارد. MyISAM غیرtransactional است، table-level locking دارد (هر write کل جدول را قفل می‌کند → concurrency پایین)، بدون foreign key و بدون crash recovery امن. تاریخاً MyISAM برای read-heavy سریع‌تر تلقی می‌شد، اما با بهبودهای InnoDB دیگر دلیلی برای MyISAM در سیستم جدید نیست. پیش‌فرض MySQL از 5.5 به بعد InnoDB است.
+InnoDB: transactional (ACID)، row-level locking (concurrency بالا)، FK، crash recovery، MVCC. MyISAM: غیرtransactional، table-level locking (concurrency پایین)، بدون FK. MyISAM منسوخ است؛ پیش‌فرض از 5.5 InnoDB.
 
 **نکته مصاحبه:**
 
-Senior می‌داند MyISAM منسوخ است و دلیل (locking، عدم transaction) را توضیح می‌دهد.
+Senior می‌داند MyISAM منسوخ است.
 
 ---
 
-### سوال ۲: تفاوت `ROWNUM` و `ROW_NUMBER()` در Oracle چیست؟
+### سوال ۲: تفاوت `ROWNUM` و `ROW_NUMBER()` در Oracle؟
 
 **سطح:** Senior
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-`ROWNUM` یک pseudo-column است که **هنگام انتخاب ردیف‌ها** (قبل از ORDER BY) تخصیص می‌یابد. بنابراین `WHERE ROWNUM <= 5 ORDER BY x` ابتدا ۵ ردیف دلخواه را برمی‌دارد و بعد مرتب می‌کند — نتیجه‌ی اشتباه برای top-N. `ROW_NUMBER()` یک window function است که **بعد از** اعمال ORDER BY در `OVER(...)` شماره می‌دهد، پس top-N درست را می‌دهد. برای top-N یا باید ROWNUM را روی subquery مرتب‌شده اعمال کنید یا از `ROW_NUMBER()`/`FETCH FIRST` استفاده کنید.
+`ROWNUM` pseudo-column که **هنگام انتخاب ردیف** (قبل از ORDER BY) تخصیص می‌یابد، پس `WHERE ROWNUM<=5 ORDER BY x` نتیجه‌ی اشتباه می‌دهد. `ROW_NUMBER()` window function که **بعد از** ORDER BY شماره می‌دهد. برای top-N از subquery یا `FETCH FIRST`.
 
 **نکته مصاحبه:**
 
-تمایز Senior: دانستن تله‌ی ترتیب اعمال ROWNUM. Follow-up: «pagination در Oracle 12c چطور؟» (`OFFSET ... FETCH NEXT`).
+تمایز Senior: تله‌ی ترتیب ROWNUM. Follow-up: «pagination Oracle 12c؟» (`OFFSET ... FETCH NEXT`).
 
 ---
 
-### سوال ۳: GTID در replication چه مزیتی دارد؟
+### سوال ۳: GTID چه مزیتی دارد؟
 
 **سطح:** Senior / Lead
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-در replication سنتی binlog-based، موقعیت replica با نام فایل و offset binlog مشخص می‌شد که هنگام failover (تغییر primary) محاسبه‌ی موقعیت معادل روی master جدید سخت و خطاپذیر بود. GTID به هر transaction یک شناسه‌ی یکتای جهانی می‌دهد، پس replica دقیقاً می‌داند کدام transactionها را اعمال کرده و failover به master جدید خودکار و امن می‌شود (بدون محاسبه‌ی دستی offset). همچنین تشخیص ناسازگاری و auto-positioning را ممکن می‌کند.
+در binlog سنتی، موقعیت با نام فایل و offset مشخص می‌شد که هنگام failover سخت بود. GTID به هر transaction شناسه‌ی یکتای جهانی می‌دهد، پس failover خودکار و امن می‌شود (بدون محاسبه‌ی دستی offset) و auto-positioning ممکن می‌شود.
 
 **نکته مصاحبه:**
 
@@ -143,18 +162,18 @@ Lead به ساده‌سازی failover اشاره می‌کند.
 
 ---
 
-### سوال ۴: AWR و ASH در Oracle برای چه هستند؟
+### سوال ۴: AWR و ASH برای چه؟
 
 **سطح:** Senior
 **تکرار:** کم
 
 **جواب کامل:**
 
-هر دو ابزار performance diagnostics در Oracle هستند. **AWR** (Automatic Workload Repository) به‌صورت دوره‌ای snapshot از آمار performance (top SQL، wait events، منابع) می‌گیرد و گزارش بین دو snapshot می‌دهد — برای تحلیل تاریخی و یافتن گلوگاه. **ASH** (Active Session History) نمونه‌برداری مکرر از sessionهای فعال است — برای تحلیل real-time و رویدادهای کوتاه‌مدت که بین snapshotهای AWR گم می‌شوند. ترکیب این دو برای troubleshooting performance استفاده می‌شود (معادل تقریبی `pg_stat_statements` در PostgreSQL).
+**AWR** snapshot دوره‌ای آمار performance (top SQL، wait events) — برای تحلیل تاریخی. **ASH** نمونه‌برداری مکرر از sessionهای فعال — برای real-time. ترکیب برای troubleshooting (معادل `pg_stat_statements`).
 
 **نکته مصاحبه:**
 
-Senior معادل PostgreSQL را می‌داند و تفاوت تاریخی/real-time را توضیح می‌دهد.
+Senior معادل PostgreSQL را می‌داند.
 
 ---
 
@@ -176,11 +195,11 @@ SELECT * FROM orders ORDER BY amount DESC FETCH FIRST 5 ROWS ONLY;
 
 ---
 
-### اشتباه ۲: استفاده از MyISAM برای داده‌ی transactional
+### اشتباه ۲: MyISAM برای داده‌ی transactional
 
 ```sql
 -- ❌
-CREATE TABLE payments (...) ENGINE=MyISAM; -- بدون transaction!
+CREATE TABLE payments (...) ENGINE=MyISAM;
 ```
 
 ```sql
@@ -188,24 +207,24 @@ CREATE TABLE payments (...) ENGINE=MyISAM; -- بدون transaction!
 CREATE TABLE payments (...) ENGINE=InnoDB;
 ```
 
-**توضیح:** MyISAM transaction و FK ندارد؛ برای پول فاجعه است.
+**توضیح:** MyISAM transaction و FK ندارد.
 
 ---
 
-### اشتباه ۳: فرض رفتار یکسان EXPLAIN بین MySQL و PostgreSQL
+### اشتباه ۳: فرض رفتار یکسان EXPLAIN
 
 ```text
-❌ انتظار همان خروجی و plan node
-✅ هر DB planner و فرمت EXPLAIN متفاوتی دارد
+❌ انتظار همان خروجی MySQL و PostgreSQL
+✅ هر DB planner و فرمت متفاوت دارد
 ```
 
-**توضیح:** مهارت EXPLAIN باید برای هر DB جداگانه یاد گرفته شود.
+**توضیح:** مهارت EXPLAIN برای هر DB جداگانه.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- storage engine و locking با **transactions** و **isolation (3.1, 2.4)** مرتبط است.
-- replication با **System Design (HA، read scaling)** و **PostgreSQL replication** قابل‌مقایسه.
+- storage engine و locking با **transactions/isolation (3.1, 2.4)**.
+- replication با **System Design (HA 6.2)** و **PostgreSQL replication (3.3)**.
 - ROWNUM/ROW_NUMBER با **window functions (3.1)**.
-- AWR/ASH با **performance tools** PostgreSQL.
+- AWR/ASH با **performance tools (3.3)**.

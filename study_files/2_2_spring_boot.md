@@ -44,7 +44,7 @@ mindmap
 
 **توضیح:**
 
-Auto-configuration هسته‌ی جادوی Spring Boot است: بر اساس آنچه در classpath وجود دارد و propertyها، bEانهای مناسب را خودکار می‌سازد. `@SpringBootApplication` ترکیب سه annotation است:
+Auto-configuration هسته‌ی جادوی Spring Boot است: بر اساس آنچه در classpath وجود دارد و propertyها، bean‌های مناسب را خودکار می‌سازد. `@SpringBootApplication` ترکیب سه annotation است:
 
 ```mermaid
 flowchart TD
