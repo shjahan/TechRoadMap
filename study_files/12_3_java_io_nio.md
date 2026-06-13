@@ -1,6 +1,33 @@
 # Java I/O — Streams، NIO، NIO.2
 
-> درک I/O و NIO برای performance و کار با فایل/شبکه لازم است. zero-copy و non-blocking I/O مفاهیم کلیدی‌اند.
+> درک I/O و NIO برای performance و کار با فایل/شبکه لازم است. zero-copy و non-blocking I/O مفاهیم کلیدی‌اند. این فایل با دیاگرام گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Java I/O))
+    java.io
+      InputStream/Reader
+      Decorator
+      try-with-resources
+    NIO
+      Buffer/Channel
+      Selector
+      zero-copy
+    NIO.2
+      Path/Files
+      WatchService
+```
 
 ---
 
@@ -10,20 +37,20 @@
 
 **توضیح:**
 
-API کلاسیک blocking I/O. **InputStream/OutputStream** byte-based؛ **Reader/Writer** character-based (با encoding). از **Decorator pattern** استفاده می‌کند: `BufferedReader(new FileReader(...))` — هر لایه قابلیتی اضافه می‌کند (buffering، encoding). همیشه با `try-with-resources` (که `AutoCloseable` را close می‌کند) استفاده کنید.
+blocking I/O. **InputStream/OutputStream** byte-based؛ **Reader/Writer** character-based (encoding). **Decorator pattern** (`BufferedReader(new FileReader())`). همیشه `try-with-resources`.
 
 **مثال کد:**
 
 ```java
 try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
     return reader.lines().collect(Collectors.toList());
-} // close خودکار
+}
 ```
 
 **نکات کلیدی:**
 
-- Reader/Writer برای متن (با encoding صریح)؛ Stream برای byte.
-- buffering برای کاهش تعداد system call.
+- Reader/Writer برای متن (encoding صریح)؛ Stream برای byte.
+- buffering برای کاهش system call.
 - همیشه try-with-resources.
 
 ---
@@ -32,21 +59,23 @@ try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_
 
 **توضیح:**
 
-NIO برای I/O کارآمدتر و non-blocking:
+- **Buffer** (`ByteBuffer`): `flip()`, `clear()`. Direct/Heap.
+- **Channel** (`FileChannel`, `SocketChannel`): با buffer.
+- **Selector**: multiplexing — یک thread چند channel (non-blocking، پایه‌ی Netty).
+- **`transferTo()`**: zero-copy.
 
-- **Buffer** (`ByteBuffer`): ظرف داده با `flip()`, `clear()`, `compact()`. Direct buffer (خارج heap، برای I/O سریع) در برابر Heap buffer.
-- **Channel** (`FileChannel`, `SocketChannel`): دوطرفه، با buffer کار می‌کند.
-- **Selector:** multiplexing — یک thread چند channel را مدیریت می‌کند (non-blocking I/O، پایه‌ی Netty).
-- **`FileChannel.transferTo()`:** zero-copy (انتقال مستقیم بین channelها بدون کپی به user space).
-
-**چرا مهم است:**
-
-non-blocking I/O با Selector پایه‌ی سرورهای high-concurrency (Netty، WebFlux) است. zero-copy برای انتقال فایل بزرگ بهینه است.
+```mermaid
+flowchart LR
+    Selector --> CH1[Channel 1]
+    Selector --> CH2[Channel 2]
+    Selector --> CH3[Channel 3]
+    Note["یک thread، هزاران اتصال (event-driven)"]
+```
 
 **نکات کلیدی:**
 
-- Selector یک thread برای هزاران اتصال (event-driven).
-- zero-copy از کپی اضافی بین kernel و user space جلوگیری می‌کند.
+- Selector یک thread برای هزاران اتصال.
+- zero-copy از کپی بین kernel/user space جلوگیری می‌کند.
 - direct buffer برای I/O مکرر بزرگ.
 
 ---
@@ -55,21 +84,16 @@ non-blocking I/O با Selector پایه‌ی سرورهای high-concurrency (Ne
 
 **توضیح:**
 
-API مدرن فایل: `Path`/`Paths`/`Files`. متدهای راحت: `Files.readAllLines`, `Files.walk` (پیمایش درخت با Stream)، `WatchService` (نظارت بر تغییر فایل).
+`Path`/`Files`. متدها: `readAllLines`, `walk` (Stream)، `WatchService` (نظارت تغییر).
 
 **مثال کد:**
 
 ```java
-// پیمایش و فیلتر فایل‌ها
 try (Stream<Path> paths = Files.walk(Path.of("/dir"))) {
     paths.filter(Files::isRegularFile)
          .filter(p -> p.toString().endsWith(".java"))
          .forEach(System.out::println);
 }
-
-// نظارت بر تغییر دایرکتوری
-WatchService watcher = FileSystems.getDefault().newWatchService();
-path.register(watcher, ENTRY_CREATE, ENTRY_MODIFY);
 ```
 
 **نکات کلیدی:**
@@ -81,33 +105,33 @@ path.register(watcher, ENTRY_CREATE, ENTRY_MODIFY);
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: blocking I/O در برابر non-blocking I/O (NIO)؟
+### سوال ۱: blocking در برابر non-blocking I/O (NIO)؟
 
 **سطح:** Senior / Lead
 **تکرار:** زیاد
 
 **جواب کامل:**
 
-در blocking I/O (java.io)، هر thread روی یک اتصال block می‌شود تا داده برسد — مدل thread-per-connection که برای اتصال زیاد مقیاس نمی‌گیرد (thread گران). در non-blocking I/O (NIO با Selector)، یک thread (یا چند) با Selector چند channel را همزمان مدیریت می‌کند: به‌جای block شدن، Selector اطلاع می‌دهد کدام channel آماده‌ی read/write است (event-driven). این مدل با تعداد کم thread، هزاران اتصال را مدیریت می‌کند — پایه‌ی Netty و WebFlux. trade-off: کد NIO پیچیده‌تر است. نکته‌ی مدرن: با virtual threads (Java 21)، blocking I/O ساده دوباره مقیاس‌پذیر شده و نیاز به پیچیدگی NIO/reactive را در بسیاری موارد کم کرده.
+blocking: هر thread روی اتصال block (thread-per-connection، مقیاس نمی‌گیرد). non-blocking (Selector): یک thread چند channel را با event مدیریت می‌کند → هزاران اتصال با thread کم (پایه‌ی Netty/WebFlux). کد NIO پیچیده‌تر. با virtual threads (21)، blocking ساده دوباره مقیاس‌پذیر شده.
 
 **نکته مصاحبه:**
 
-Lead به Selector، Netty، و تأثیر virtual threads اشاره می‌کند.
+Lead به Selector و تأثیر virtual threads اشاره می‌کند.
 
 ---
 
-### سوال ۲: zero-copy چیست و چه مزیتی دارد؟
+### سوال ۲: zero-copy چیست؟
 
 **سطح:** Senior / Lead
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-در کپی معمولی فایل به socket، داده چندبار کپی می‌شود: disk → kernel buffer → user space (اپ) → kernel socket buffer → NIC. هر کپی و context switch هزینه دارد. **zero-copy** (با `FileChannel.transferTo()` که از `sendfile` سیستم‌عامل استفاده می‌کند) داده را مستقیماً از kernel buffer به socket buffer منتقل می‌کند بدون عبور از user space — کپی‌ها و context switchها کاهش می‌یابند. مزیت: throughput بالاتر و CPU کمتر برای انتقال فایل بزرگ (مثل static file serving، Kafka که از zero-copy استفاده می‌کند). به همین دلیل Kafka throughput بالایی دارد.
+در کپی معمولی، داده چندبار کپی (disk → kernel → user → kernel socket → NIC). **zero-copy** (`transferTo`/`sendfile`) مستقیم از kernel buffer به socket buffer بدون user space → کپی/context switch کمتر → throughput بالاتر. Kafka از آن استفاده می‌کند.
 
 **نکته مصاحبه:**
 
-Senior به استفاده‌ی Kafka از zero-copy اشاره می‌کند.
+Senior به استفاده‌ی Kafka اشاره می‌کند.
 
 ---
 
@@ -118,7 +142,7 @@ Senior به استفاده‌ی Kafka از zero-copy اشاره می‌کند.
 
 **جواب کامل:**
 
-Selector یک multiplexer است: چند channel (non-blocking) را با یک Selector register می‌کنید با علاقه به رویدادهای خاص (OP_READ، OP_WRITE، OP_ACCEPT). سپس `selector.select()` صدا می‌زنید که block می‌شود تا حداقل یک channel آماده شود، و مجموعه‌ی channelهای آماده را برمی‌گرداند. یک thread در یک حلقه این رویدادها را پردازش می‌کند. زیر کاپوت از `epoll` (Linux)/`kqueue` استفاده می‌کند. این یعنی یک thread می‌تواند هزاران اتصال را مدیریت کند به‌جای یک thread per connection — پایه‌ی event-loop در Netty و سرورهای reactive.
+multiplexer: چند channel non-blocking را با علاقه (OP_READ/WRITE/ACCEPT) register می‌کنید؛ `select()` block تا channel آماده شود، مجموعه‌ی آماده را برمی‌گرداند. یک thread در حلقه پردازش می‌کند. زیر کاپوت `epoll`/`kqueue`. پایه‌ی event-loop در Netty.
 
 **نکته مصاحبه:**
 
@@ -131,7 +155,7 @@ Senior به epoll و event-loop اشاره می‌کند.
 ### اشتباه ۱: عدم بستن Stream از Files.walk/lines
 
 ```java
-// ❌ resource leak (file handle)
+// ❌ resource leak
 Files.lines(path).forEach(...);
 ```
 
@@ -140,14 +164,14 @@ Files.lines(path).forEach(...);
 try (var lines = Files.lines(path)) { lines.forEach(...); }
 ```
 
-**توضیح:** `Files.walk`/`lines` منبع باز نگه می‌دارند؛ باید بسته شوند.
+**توضیح:** منبع باز نگه می‌دارند؛ باید بسته شوند.
 
 ---
 
 ### اشتباه ۲: خواندن بدون buffering
 
 ```java
-// ❌ هر read یک system call
+// ❌
 FileReader r = new FileReader(file);
 ```
 
@@ -156,14 +180,14 @@ FileReader r = new FileReader(file);
 BufferedReader r = new BufferedReader(new FileReader(file));
 ```
 
-**توضیح:** بدون buffer، I/O کند است (system call زیاد).
+**توضیح:** بدون buffer، I/O کند است.
 
 ---
 
 ### اشتباه ۳: فراموشی encoding صریح
 
 ```java
-// ❌ وابسته به default platform encoding → باگ روی سیستم متفاوت
+// ❌
 new FileReader(file);
 ```
 
@@ -172,13 +196,13 @@ new FileReader(file);
 Files.newBufferedReader(path, StandardCharsets.UTF_8);
 ```
 
-**توضیح:** encoding صریح از باگ‌های cross-platform جلوگیری می‌کند.
+**توضیح:** encoding صریح از باگ cross-platform جلوگیری می‌کند.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- NIO/Selector با **WebFlux/Netty (2.3)** و **non-blocking**.
-- virtual threads با blocking I/O ساده (**1.5**).
-- zero-copy با **Kafka (8.1)** performance.
+- NIO/Selector با **WebFlux/Netty (2.3)**.
+- virtual threads (1.5) جایگزین ساده‌تر.
+- zero-copy با **Kafka (8.1)**.
 - try-with-resources با **Exceptions (1.1)**.

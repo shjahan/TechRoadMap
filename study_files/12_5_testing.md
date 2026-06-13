@@ -1,6 +1,46 @@
 # Testing در Java — JUnit 5، Mockito، Spring Test، Testcontainers
 
-> تست مهارت پایه‌ی Senior است. Test Pyramid و Testcontainers موضوعات کلیدی مصاحبه‌اند.
+> تست مهارت پایه‌ی Senior است. Test Pyramid و Testcontainers موضوعات کلیدی مصاحبه‌اند. این فایل با دیاگرام و مثال‌های متعدد گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Testing))
+    JUnit 5
+      lifecycle
+      parameterized
+    Mockito
+      mock/verify
+      ArgumentCaptor
+    Spring Test
+      slices
+      MockMvc
+    Testcontainers
+      real DB
+    Test Pyramid
+```
+
+---
+
+## Test Pyramid
+
+```mermaid
+flowchart TD
+    E2E["E2E (10%) - کند، شکننده"]
+    Int["Integration (20%)"]
+    Unit["Unit (70%) - سریع، isolated"]
+    Unit --> Int --> E2E
+```
 
 ---
 
@@ -10,34 +50,28 @@
 
 **توضیح:**
 
-فریم‌ورک تست استاندارد. `@Test`, lifecycle (`@BeforeEach`, `@AfterEach`, `@BeforeAll`)، parameterized tests (`@ParameterizedTest` با `@ValueSource`, `@CsvSource`, `@MethodSource`)، `@ExtendWith` برای extension (مثل Mockito). الگوی **Arrange-Act-Assert** (AAA) برای ساختار خوانا.
+`@Test`, lifecycle (`@BeforeEach`)، parameterized (`@ParameterizedTest` + `@ValueSource`/`@CsvSource`/`@MethodSource`)، `@ExtendWith`. الگوی **AAA** (Arrange-Act-Assert).
 
 **مثال کد:**
 
 ```java
 @Test
 void shouldCalculateTotal() {
-    // Arrange
-    var cart = new Cart();
-    cart.add(new Item("book", 1000), 2);
-    // Act
-    long total = cart.total();
-    // Assert
-    assertThat(total).isEqualTo(2000);
+    var cart = new Cart(); cart.add(new Item("book", 1000), 2); // Arrange
+    long total = cart.total();                                   // Act
+    assertThat(total).isEqualTo(2000);                           // Assert
 }
 
 @ParameterizedTest
 @CsvSource({"2, 3, 5", "10, 20, 30"})
-void shouldAdd(int a, int b, int expected) {
-    assertThat(calculator.add(a, b)).isEqualTo(expected);
-}
+void shouldAdd(int a, int b, int expected) { assertThat(calc.add(a, b)).isEqualTo(expected); }
 ```
 
 **نکات کلیدی:**
 
 - AAA برای ساختار خوانا.
-- parameterized برای چند ورودی بدون تکرار.
-- نام تست باید رفتار را توصیف کند (`shouldXWhenY`).
+- parameterized برای چند ورودی.
+- نام تست رفتار را توصیف کند.
 
 ---
 
@@ -45,7 +79,7 @@ void shouldAdd(int a, int b, int expected) {
 
 **توضیح:**
 
-mock کردن وابستگی‌ها برای isolation در unit test. `@Mock` (ساخت mock)، `@InjectMocks` (تزریق mockها)، `when(...).thenReturn(...)` (stub)، `verify(...)` (بررسی فراخوانی)، `ArgumentCaptor` (گرفتن آرگومان). تفاوت stub (تعیین رفتار) و verify (بررسی تعامل).
+`@Mock`, `@InjectMocks`, `when().thenReturn()`, `verify()`, `ArgumentCaptor`. stub (رفتار) در برابر verify (تعامل).
 
 **مثال کد:**
 
@@ -58,7 +92,7 @@ class UserServiceTest {
     @Test
     void shouldSaveUser() {
         when(repository.save(any())).thenReturn(new User(1L, "Ali"));
-        User result = service.create("Ali");
+        service.create("Ali");
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(repository).save(captor.capture());
         assertThat(captor.getValue().name()).isEqualTo("Ali");
@@ -68,9 +102,9 @@ class UserServiceTest {
 
 **نکات کلیدی:**
 
-- mock فقط وابستگی‌های خارجی؛ منطق خودِ کلاس تحت تست را mock نکنید.
+- فقط وابستگی خارجی را mock کنید.
 - verify برای تعامل، assert برای نتیجه.
-- از over-mocking بپرهیزید (تست شکننده می‌شود).
+- از over-mocking بپرهیزید.
 
 ---
 
@@ -78,7 +112,7 @@ class UserServiceTest {
 
 **توضیح:**
 
-**Test slices** برای بارگذاری بخشی از context (سریع‌تر): `@WebMvcTest` (فقط web layer + MockMvc)، `@DataJpaTest` (JPA + embedded/Testcontainers DB)، `@JsonTest`, `@RestClientTest`. `@SpringBootTest` کل context را بالا می‌آورد (کندتر، برای integration). `@MockBean` (یا `@MockitoBean` در نسخه‌های جدید) برای mock در context.
+**Test slices:** `@WebMvcTest` (web + MockMvc)، `@DataJpaTest` (JPA + DB)، `@JsonTest`. `@SpringBootTest` کل context (کند). `@MockitoBean` برای mock در context.
 
 **مثال کد:**
 
@@ -100,8 +134,8 @@ class UserControllerTest {
 
 **نکات کلیدی:**
 
-- test slice سریع‌تر از `@SpringBootTest` کامل است.
-- `@WebMvcTest` فقط web layer؛ service را mock کنید.
+- test slice سریع‌تر از `@SpringBootTest` کامل.
+- `@WebMvcTest` فقط web layer.
 
 ---
 
@@ -109,7 +143,7 @@ class UserControllerTest {
 
 **توضیح:**
 
-اجرای دیتابیس/سرویس واقعی در container برای تست — به‌جای H2 که رفتار متفاوت دارد. `@Testcontainers` + `@Container`. با `@DynamicPropertySource` آدرس container به Spring داده می‌شود. برای PostgreSQL، MongoDB، Redis، Kafka، Elasticsearch.
+اجرای DB/سرویس واقعی در container — به‌جای H2 (رفتار متفاوت). `@Testcontainers` + `@Container` + `@DynamicPropertySource`.
 
 **مثال کد:**
 
@@ -118,8 +152,7 @@ class UserControllerTest {
 @Testcontainers
 class OrderRepositoryTest {
     @Container
-    static PostgreSQLContainer<?> postgres =
-        new PostgreSQLContainer<>("postgres:17");
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17");
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry registry) {
@@ -132,8 +165,8 @@ class OrderRepositoryTest {
 
 **نکات کلیدی:**
 
-- Testcontainers DB واقعی → رفتار production-like (برخلاف H2).
-- container را static کنید تا بین تست‌ها reuse شود (سرعت).
+- Testcontainers DB واقعی (برخلاف H2).
+- container را static کنید (reuse، سرعت).
 
 ---
 
@@ -141,29 +174,29 @@ class OrderRepositoryTest {
 
 **توضیح:**
 
-نسبت توصیه‌شده: **Unit (70%)** سریع و isolated؛ **Integration (20%)** چند component؛ **E2E (10%)** کند و شکننده. هرم نه ساعت‌شنی (ضدالگو: E2E زیاد، unit کم). **Contract tests** (Pact) برای microservices API contracts.
+Unit (70%، سریع)، Integration (20%)، E2E (10%، کند، شکننده). نه ساعت‌شنی (ضدالگو). Contract tests (Pact).
 
 **نکات کلیدی:**
 
-- بیشتر unit (سریع)، کمتر E2E (کند، شکننده).
-- contract testing برای جلوگیری از breaking change بین سرویس‌ها.
+- بیشتر unit، کمتر E2E.
+- contract testing برای microservices.
 
 ---
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: Test Pyramid چیست و چرا E2E کم؟
+### سوال ۱: Test Pyramid و چرا E2E کم؟
 
 **سطح:** Senior
 **تکرار:** زیاد
 
 **جواب کامل:**
 
-Test Pyramid توزیع پیشنهادی تست‌هاست: پایه‌ی پهن از unit tests (سریع، isolated، ارزان)، لایه‌ی میانی integration tests، و نوک کوچک E2E tests. دلیل کم بودن E2E: کند هستند (کل سیستم بالا می‌آید)، **شکننده** (به محیط، شبکه، داده، timing وابسته‌اند و flaky می‌شوند)، و دیباگ سخت (وقتی fail می‌شوند، علت مبهم است). unit tests سریع feedback می‌دهند و دقیقاً مشکل را نشان می‌دهند. ضدالگوی «ice cream cone» (E2E زیاد، unit کم) منجر به test suite کند و بی‌اعتماد می‌شود. استراتژی: منطق را با unit، یکپارچگی را با integration (Testcontainers)، و فقط مسیرهای حیاتی کاربر را با E2E تست کنید.
+unit (سریع، isolated، ارزان)، integration، E2E (کم). E2E کند، **شکننده** (محیط/شبکه/timing → flaky)، دیباگ سخت. unit feedback سریع و دقیق. ضدالگوی «ice cream cone» (E2E زیاد). استراتژی: منطق با unit، یکپارچگی با integration (Testcontainers)، مسیر حیاتی با E2E.
 
 **نکته مصاحبه:**
 
-Senior به flakiness و ضدالگوی ice cream cone اشاره می‌کند.
+Senior به flakiness و ice cream cone اشاره می‌کند.
 
 ---
 
@@ -174,22 +207,22 @@ Senior به flakiness و ضدالگوی ice cream cone اشاره می‌کند.
 
 **جواب کامل:**
 
-H2 یک in-memory DB است که برای تست سریع است اما رفتار آن با دیتابیس production (PostgreSQL) **متفاوت** است: dialect SQL متفاوت، عدم پشتیبانی از feature‌های خاص (JSONB، window functions پیشرفته، انواع داده)، رفتار متفاوت در constraint و transaction. نتیجه: تست با H2 سبز می‌شود اما در production می‌شکند (false confidence). Testcontainers یک نمونه‌ی **واقعی** PostgreSQL را در container اجرا می‌کند، پس تست دقیقاً علیه همان DB production اجرا می‌شود — اطمینان واقعی. هزینه: کندتر از H2 (نیاز Docker و startup container)، که با reuse container و parallel تا حدی جبران می‌شود. trade-off اطمینان در برابر سرعت، که برای persistence layer به نفع Testcontainers است.
+H2 رفتار متفاوت از production (PostgreSQL): dialect، عدم پشتیبانی feature (JSONB)، رفتار constraint/transaction → تست سبز اما production قرمز (false confidence). Testcontainers DB **واقعی** → اطمینان واقعی. هزینه: کندتر (Docker)، با reuse/parallel جبران.
 
 **نکته مصاحبه:**
 
-Senior به false confidence با H2 (dialect متفاوت) اشاره می‌کند.
+Senior به false confidence با H2 اشاره می‌کند.
 
 ---
 
-### سوال ۳: تفاوت `@WebMvcTest` و `@SpringBootTest`؟
+### سوال ۳: `@WebMvcTest` در برابر `@SpringBootTest`؟
 
 **سطح:** Senior
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-`@WebMvcTest` یک test slice است که فقط لایه‌ی web را بالا می‌آورد (controllerها، filterها، MockMvc) و بقیه (service، repository) را بارگذاری نمی‌کند — پس باید آن‌ها را `@MockitoBean` کنید. سریع است و فقط منطق controller (routing، serialization، validation، status) را تست می‌کند. `@SpringBootTest` کل application context را بالا می‌آورد (همه‌ی beanها، DB، …) — برای integration test کامل، اما کند. انتخاب: برای تست controller به‌تنهایی `@WebMvcTest`؛ برای تست یکپارچه‌ی end-to-end داخلی `@SpringBootTest` (معمولاً با Testcontainers). استفاده‌ی `@SpringBootTest` برای همه‌چیز test suite را کند می‌کند.
+`@WebMvcTest` فقط web layer (controller/MockMvc)؛ service را mock کنید — سریع. `@SpringBootTest` کل context — integration کامل، اما کند. controller به‌تنهایی → `@WebMvcTest`؛ یکپارچه → `@SpringBootTest` (با Testcontainers).
 
 **نکته مصاحبه:**
 
@@ -202,48 +235,44 @@ Senior test slice را برای سرعت ترجیح می‌دهد.
 ### اشتباه ۱: `@SpringBootTest` برای همه‌چیز
 
 ```java
-// ❌ کند، کل context برای تست یک controller
-@SpringBootTest
-class UserControllerTest {}
+// ❌
+@SpringBootTest class UserControllerTest {}
 ```
 
 ```java
-// ✅ test slice
+// ✅
 @WebMvcTest(UserController.class)
 ```
 
-**توضیح:** test slice سریع‌تر و متمرکزتر است.
+**توضیح:** test slice سریع‌تر.
 
 ---
 
 ### اشتباه ۲: over-mocking
 
-```java
-// ❌ mock کردن همه‌چیز → تست به پیاده‌سازی gره می‌خورد
+```text
+❌ mock همه‌چیز → تست شکننده
+✅ فقط وابستگی خارجی
 ```
 
-```java
-// ✅ فقط وابستگی‌های خارجی را mock کنید
-```
-
-**توضیح:** mock زیاد تست را شکننده و بی‌ارزش می‌کند.
+**توضیح:** mock زیاد تست را بی‌ارزش می‌کند.
 
 ---
 
 ### اشتباه ۳: تست با H2 برای کد PostgreSQL-specific
 
 ```text
-❌ H2 → سبز، production → قرمز
-✅ Testcontainers با PostgreSQL واقعی
+❌ H2 سبز، production قرمز
+✅ Testcontainers
 ```
 
-**توضیح:** dialect متفاوت H2 false confidence می‌دهد.
+**توضیح:** dialect متفاوت false confidence می‌دهد.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- testing با **CI/CD (10.3)** (fail fast).
+- testing با **CI/CD (10.3)**.
 - Testcontainers با **Docker (10.1)** و **Spring Data (2.4)**.
-- contract testing با **microservices (6.1)** و **Spring Test عمیق (13.5)**.
-- mocking با **dependency injection (2.1)** (constructor injection تست را آسان می‌کند).
+- contract testing با **microservices (6.1)** و **Spring Test (13.5)**.
+- mocking با **constructor injection (2.1)**.

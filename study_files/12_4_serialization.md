@@ -1,6 +1,31 @@
 # Serialization — Java Serialization، Jackson، Protobuf، Avro
 
-> serialization در API، messaging و persistence همه‌جا هست. Java serialization خطرناک است؛ مدرن‌ها امن‌ترند.
+> serialization در API، messaging و persistence همه‌جا هست. Java serialization خطرناک است؛ مدرن‌ها امن‌ترند. این فایل با دیاگرام گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Serialization))
+    Java native
+      Serializable
+      RCE risk
+    Jackson
+      JSON
+      annotations
+    Protobuf/Avro
+      binary
+      schema evolution
+```
 
 ---
 
@@ -10,12 +35,18 @@
 
 **توضیح:**
 
-مکانیزم داخلی با `implements Serializable`. `serialVersionUID` برای version control (اگر تغییر کند، deserialize شکست می‌خورد). `transient` فیلدهای حساس/غیرضروری را از serialization حذف می‌کند. `readObject`/`writeObject` برای custom. **مشکلات جدی:** آسیب‌پذیری امنیتی (deserialization of untrusted data → RCE، یکی از خطرناک‌ترین کلاس‌های آسیب‌پذیری)، performance ضعیف، coupling شدید به ساختار کلاس. در production معمولاً از آن اجتناب می‌شود.
+`implements Serializable`. `serialVersionUID`، `transient`. **مشکلات جدی:** آسیب‌پذیری امنیتی (deserialization of untrusted → RCE)، performance ضعیف، coupling. در production کمتر استفاده کنید.
+
+```mermaid
+flowchart LR
+    Untrusted[داده‌ی untrusted] --> Deser[deserialize]
+    Deser -->|gadget chain| RCE[اجرای کد دلخواه ❌]
+```
 
 **نکات کلیدی:**
 
-- Java serialization برای داده‌ی untrusted خطرناک است (RCE).
-- در سیستم‌های مدرن از JSON/Protobuf استفاده کنید.
+- Java serialization برای untrusted خطرناک (RCE).
+- در سیستم مدرن JSON/Protobuf.
 - `transient` برای حذف فیلد حساس.
 
 ---
@@ -24,7 +55,7 @@
 
 **توضیح:**
 
-کتابخانه‌ی استاندارد JSON در Spring Boot. `ObjectMapper` هسته است. annotationها: `@JsonProperty` (نام فیلد)، `@JsonIgnore` (حذف)، `@JsonFormat` (فرمت تاریخ)، `@JsonInclude` (حذف null). custom serializer/deserializer برای منطق خاص. Jackson 3 در Boot 4 module-based است.
+استاندارد JSON در Spring Boot. `ObjectMapper`. annotationها: `@JsonProperty`, `@JsonIgnore`, `@JsonFormat`, `@JsonInclude`. Jackson 3 در Boot 4.
 
 **مثال کد:**
 
@@ -34,16 +65,15 @@ public record UserDto(
     @JsonIgnore String password,
     @JsonFormat(pattern = "yyyy-MM-dd") LocalDate birthDate) {}
 
-// config
 ObjectMapper mapper = new ObjectMapper()
-    .registerModule(new JavaTimeModule())  // برای java.time
+    .registerModule(new JavaTimeModule())
     .setSerializationInclusion(JsonInclude.Include.NON_NULL);
 ```
 
 **نکات کلیدی:**
 
-- `@JsonIgnore` برای فیلد حساس (مثل password).
-- `JavaTimeModule` برای java.time (وگرنه خطا).
+- `@JsonIgnore` برای فیلد حساس.
+- `JavaTimeModule` برای java.time.
 - `FAIL_ON_UNKNOWN_PROPERTIES` را برای backward compatibility مدیریت کنید.
 
 ---
@@ -52,13 +82,13 @@ ObjectMapper mapper = new ObjectMapper()
 
 **توضیح:**
 
-**Protobuf** (Google): باینری، فشرده، با schema (`.proto`)، code generation، سریع. برای gRPC و ارتباط بین‌سرویسی پرکارایی. **Avro:** schema-based، برای Kafka رایج (با Schema Registry). هر دو **schema evolution** را پشتیبانی می‌کنند (افزودن/حذف فیلد با حفظ سازگاری backward/forward).
+**Protobuf:** باینری، فشرده، schema (`.proto`)، code generation (gRPC). **Avro:** schema-based، Kafka (Schema Registry). هر دو **schema evolution**.
 
 **نکات کلیدی:**
 
-- Protobuf/Avro فشرده‌تر و سریع‌تر از JSON برای ارتباط داخلی.
+- Protobuf/Avro فشرده‌تر از JSON برای داخلی.
 - schema evolution امکان تغییر بدون شکستن مصرف‌کننده.
-- JSON برای API عمومی (خوانا)؛ Protobuf/Avro برای داخلی (کارایی).
+- JSON برای عمومی؛ Protobuf/Avro برای داخلی.
 
 ---
 
@@ -71,7 +101,7 @@ ObjectMapper mapper = new ObjectMapper()
 
 **جواب کامل:**
 
-مشکل اصلی **deserialization of untrusted data**: وقتی داده‌ی serialize‌شده‌ی Java را از منبع نامطمئن deserialize می‌کنید، Java می‌تواند هر کلاسی در classpath را instantiate و متدهایش (readObject) را اجرا کند. مهاجم می‌تواند یک «gadget chain» بسازد که هنگام deserialize، کد دلخواه اجرا کند (Remote Code Execution) — یکی از خطرناک‌ترین آسیب‌پذیری‌ها (مثل حملات معروف به Apache Commons Collections). مشکلات دیگر: performance ضعیف، coupling شدید (هر تغییر کلاس می‌تواند سازگاری را بشکند)، و فرمت verbose. به همین دلیل توصیه می‌شود به‌جای آن از فرمت‌های داده‌محور (JSON، Protobuf) استفاده کنید که کد اجرا نمی‌کنند.
+**deserialization of untrusted data**: Java هر کلاسی در classpath را instantiate و `readObject` را اجرا می‌کند؛ مهاجم «gadget chain» می‌سازد → RCE (مثل Apache Commons Collections). به‌علاوه performance و coupling. به‌جای آن JSON/Protobuf (کد اجرا نمی‌کنند).
 
 **نکته مصاحبه:**
 
@@ -79,58 +109,57 @@ Lead به gadget chain و RCE اشاره می‌کند.
 
 ---
 
-### سوال ۲: JSON در برابر Protobuf — کِی کدام؟
+### سوال ۲: JSON در برابر Protobuf؟
 
 **سطح:** Senior
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-JSON متنی، خوانا، schema-less (انعطاف)، و universal است — برای API عمومی/REST که خوانایی و سازگاری با هر client مهم است. Protobuf باینری، فشرده (کوچک‌تر و سریع‌تر برای parse)، strongly-typed با schema و code generation است — برای ارتباط داخلی بین‌سرویسی پرترافیک (gRPC) که performance و قرارداد سخت‌گیرانه مهم است. trade-off: JSON خوانا اما حجیم‌تر و کندتر؛ Protobuf کارآمد اما نیاز به schema و ابزار، و غیرخوانا برای debug. هر دو schema evolution دارند (JSON با احتیاط، Protobuf با قواعد field number). انتخاب: API عمومی → JSON؛ microservice داخلی پرترافیک → Protobuf/gRPC.
+JSON متنی، خوانا، universal — برای API عمومی. Protobuf باینری، فشرده، typed، code generation — برای داخلی پرترافیک (gRPC). trade-off: JSON خوانا اما حجیم؛ Protobuf کارآمد اما نیاز schema/ابزار. عمومی → JSON؛ microservice داخلی → Protobuf.
 
 **نکته مصاحبه:**
 
-Senior trade-off خوانایی/کارایی و موارد استفاده را می‌داند.
+Senior trade-off را می‌داند.
 
 ---
 
-### سوال ۳: schema evolution چیست و چرا مهم است؟
+### سوال ۳: schema evolution چیست؟
 
 **سطح:** Senior / Lead
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-schema evolution توانایی تغییر schema داده (افزودن/حذف فیلد) بدون شکستن producerها و consumerهایی است که نسخه‌ی متفاوت دارند — حیاتی در سیستم توزیع‌شده که نمی‌توان همه را همزمان deploy کرد. **backward compatibility**: consumer جدید بتواند داده‌ی قدیمی را بخواند. **forward compatibility**: consumer قدیمی بتواند داده‌ی جدید را بخواند (فیلد ناشناخته را نادیده بگیرد). Protobuf با field number و optional بودن این را به‌خوبی پشتیبانی می‌کند (فیلد جدید را با number جدید اضافه کنید، فیلد حذف‌شده را reuse نکنید). Avro با Schema Registry سازگاری را enforce می‌کند. در Kafka، schema evolution برای deploy تدریجی ضروری است.
+تغییر schema (افزودن/حذف فیلد) بدون شکستن producer/consumer با نسخه‌ی متفاوت — حیاتی در توزیع‌شده. backward (consumer جدید داده‌ی قدیمی) و forward (consumer قدیمی داده‌ی جدید). Protobuf با field number؛ Avro با Schema Registry. در Kafka برای deploy تدریجی ضروری.
 
 **نکته مصاحبه:**
 
-Senior backward/forward compatibility و نقش Schema Registry را می‌داند.
+Senior backward/forward و Schema Registry را می‌داند.
 
 ---
 
 ## ⚠️ اشتباهات رایج
 
-### اشتباه ۱: deserialize داده‌ی untrusted با Java serialization
+### اشتباه ۱: deserialize untrusted با Java serialization
 
 ```java
-// ❌ RCE risk
-ObjectInputStream in = new ObjectInputStream(untrustedSource);
-Object obj = in.readObject();
+// ❌ RCE
+new ObjectInputStream(untrusted).readObject();
 ```
 
 ```java
-// ✅ JSON/Protobuf که کد اجرا نمی‌کند
+// ✅ JSON/Protobuf
 ```
 
-**توضیح:** Java deserialization می‌تواند کد دلخواه اجرا کند.
+**توضیح:** Java deserialization می‌تواند کد اجرا کند.
 
 ---
 
 ### اشتباه ۲: serialize کردن password
 
 ```java
-// ❌ password در JSON خروجی
+// ❌
 public record User(String name, String password) {}
 ```
 
@@ -139,15 +168,15 @@ public record User(String name, String password) {}
 public record User(String name, @JsonIgnore String password) {}
 ```
 
-**توضیح:** فیلد حساس باید از serialization حذف شود.
+**توضیح:** فیلد حساس باید حذف شود.
 
 ---
 
-### اشتباه ۳: reuse کردن field number در Protobuf
+### اشتباه ۳: reuse field number در Protobuf
 
 ```text
-❌ حذف فیلد و استفاده‌ی مجدد از number آن → ناسازگاری داده‌ی قدیمی
-✅ field number را reserve کنید، reuse نکنید
+❌ حذف فیلد و reuse number → ناسازگاری
+✅ reserved number
 ```
 
 **توضیح:** field number قدیمی با داده‌ی قدیمی تداخل می‌کند.
@@ -156,7 +185,7 @@ public record User(String name, @JsonIgnore String password) {}
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- Java serialization با **Security (7.1)** (deserialization vulnerability).
+- Java serialization با **Security (7.1)**.
 - Jackson با **Spring MVC (2.3)** و **API design**.
 - Protobuf با **gRPC (15.4)**؛ Avro با **Kafka (8.1)**.
 - schema evolution با **microservices deploy (6.1)**.

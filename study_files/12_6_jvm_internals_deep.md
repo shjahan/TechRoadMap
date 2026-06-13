@@ -1,6 +1,43 @@
 # JVM Internals عمیق — GC، JIT، JFR، Class Loading
 
-> سوالات سطح Lead روی GC tuning، JIT و profiling تمرکز دارند. این بخش performance را تعیین می‌کند.
+> سوالات سطح Lead روی GC tuning، JIT و profiling تمرکز دارند. این بخش performance را تعیین می‌کند. این فایل با دیاگرام گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((JVM Internals))
+    GC
+      G1/ZGC/Shenandoah
+      generational
+    JIT
+      C1/C2 tiered
+      inlining/escape
+    JFR
+      profiling
+    Class Loading
+      parent delegation
+```
+
+---
+
+## GC Generational (G1)
+
+```mermaid
+flowchart LR
+    Eden[Eden] -->|Minor GC| Survivor[Survivor S0/S1]
+    Survivor -->|بقا| Old[Old Generation]
+    Old -->|Mixed/Full GC| Reclaim[بازیابی]
+```
 
 ---
 
@@ -10,32 +47,21 @@
 
 **توضیح:**
 
-**G1GC** (پیش‌فرض از Java 9): region-based؛ heap به regionها تقسیم می‌شود. نسل جوان (Eden + Survivor) و پیر. **Minor GC** (نسل جوان، سریع)، **Mixed GC** (جوان + بخشی از پیر)، **Full GC** (همه، کند — باید avoid شود). هدف pause قابل‌تنظیم (`-XX:MaxGCPauseMillis`).
-
-**ZGC** (production از Java 15): concurrent، pause زیر ۱ میلی‌ثانیه حتی برای heap بزرگ (terabyte). برای latency-sensitive. **Shenandoah** (RedHat): مشابه ZGC.
-
-**چرا مهم است:**
-
-انتخاب و tuning GC مستقیماً latency و throughput را تعیین می‌کند. Full GC مکرر علامت مشکل است.
+**G1GC** (پیش‌فرض از 9): region-based؛ Young (Eden+Survivor) و Old. Minor (سریع)، Mixed، Full (کند، avoid). هدف pause (`-XX:MaxGCPauseMillis`). **ZGC** (production از 15): concurrent، pause <1ms حتی heap بزرگ. **Shenandoah** (RedHat).
 
 **مثال کد:**
 
 ```bash
-# G1 با هدف pause
 java -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xms2g -Xmx2g app.jar
-
-# ZGC برای latency پایین
 java -XX:+UseZGC -Xms4g -Xmx4g app.jar
-
-# GC logging
-java -Xlog:gc*:file=gc.log:time,uptime app.jar
+java -Xlog:gc*:file=gc.log:time app.jar
 ```
 
 **نکات کلیدی:**
 
-- `-Xms` = `-Xmx` تا از resize حین اجرا جلوگیری شود.
-- G1 متعادل (پیش‌فرض)؛ ZGC برای latency بحرانی.
-- Full GC مکرر = مشکل (نشت یا heap کوچک).
+- `-Xms` = `-Xmx` تا resize نشود.
+- G1 متعادل؛ ZGC برای latency بحرانی.
+- Full GC مکرر = مشکل.
 
 ---
 
@@ -43,11 +69,11 @@ java -Xlog:gc*:file=gc.log:time,uptime app.jar
 
 **توضیح:**
 
-کد ابتدا interpret می‌شود؛ کد «داغ» (hot، پرتکرار) توسط JIT کامپایل می‌شود. **Tiered Compilation** (پیش‌فرض): C1 (سریع کامپایل، بهینه‌سازی کم) → C2 (کند کامپایل، بهینه‌سازی زیاد). بهینه‌سازی‌های کلیدی: **inlining** (مهم‌ترین — حذف overhead فراخوانی)، **escape analysis** (اگر شیء از متد فرار نکند، روی stack تخصیص یا scalar replacement). GraalVM JIT جایگزین C2 با بهینه‌سازی بهتر در برخی workloadها.
+interpret → C1 → C2 (Tiered). بهینه‌سازی: **inlining** (مهم‌ترین)، **escape analysis** (object روی stack/scalar replacement). GraalVM JIT جایگزین C2.
 
 **نکات کلیدی:**
 
-- warmup: کد ابتدا کند است تا JIT کامپایل کند (مهم در benchmark — از JMH استفاده کنید).
+- warmup: کد ابتدا کند تا JIT کامپایل کند (در benchmark از JMH).
 - escape analysis می‌تواند تخصیص heap را حذف کند.
 
 ---
@@ -56,21 +82,19 @@ java -Xlog:gc*:file=gc.log:time,uptime app.jar
 
 **توضیح:**
 
-ابزار profiling کم‌سربار داخلی JVM: CPU، memory allocation، GC، thread/lock، I/O. با کمترین overhead (می‌توان در production فعال کرد). JDK Mission Control (JMC) برای تحلیل GUI.
+profiling کم‌سربار داخلی (CPU، allocation، GC، lock). در production قابل فعال. JMC برای تحلیل.
 
 **مثال کد:**
 
 ```bash
-# شروع recording
 java -XX:StartFlightRecording=duration=60s,filename=rec.jfr app.jar
-# یا روی process در حال اجرا
 jcmd <pid> JFR.start duration=60s filename=rec.jfr
 ```
 
 **نکات کلیدی:**
 
-- JFR کم‌سربار، مناسب production profiling.
-- برای یافتن allocation hotspot و lock contention.
+- JFR کم‌سربار، مناسب production.
+- برای allocation hotspot و lock contention.
 
 ---
 
@@ -78,29 +102,37 @@ jcmd <pid> JFR.start duration=60s filename=rec.jfr
 
 **توضیح:**
 
-سه classloader (Bootstrap، Platform، Application) با **parent delegation**. memory leak در Java: نگه‌داری ناخواسته‌ی ارجاع (static collection رشدیابنده، listener حذف‌نشده، ThreadLocal در pool، classloader leak در hot redeploy). تشخیص: heap dump + تحلیل با Eclipse MAT (dominator tree).
+سه classloader (Bootstrap، Platform، Application) با **parent delegation**. memory leak: نگه‌داری ناخواسته‌ی ارجاع (static collection، listener، ThreadLocal در pool، classloader leak). تشخیص: heap dump + Eclipse MAT (dominator tree).
+
+```mermaid
+flowchart TD
+    Boot[Bootstrap] --> Plat[Platform]
+    Plat --> App[Application]
+    App --> Custom[Custom]
+    Note["parent delegation: ابتدا از والد"]
+```
 
 **نکات کلیدی:**
 
 - memory leak = ارجاع نگه‌داشته‌شده، نه bug GC.
-- heap dump + MAT برای یافتن منبع leak.
+- heap dump + MAT برای یافتن منبع.
 
 ---
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: تفاوت G1 و ZGC و کِی کدام؟
+### سوال ۱: G1 در برابر ZGC و کِی کدام؟
 
 **سطح:** Lead
 **تکرار:** زیاد
 
 **جواب کامل:**
 
-G1 یک GC متعادل region-based است که throughput خوب با pause قابل‌تنظیم (هدف چند ده تا چند صد میلی‌ثانیه) می‌دهد؛ برای اکثر برنامه‌ها مناسب و پیش‌فرض است. ZGC یک concurrent collector است که تقریباً همه‌ی کار را همزمان با اپ انجام می‌دهد و pause زیر ۱ میلی‌ثانیه حتی برای heap چند ترابایتی تضمین می‌کند؛ برای latency-sensitive (trading، real-time، API با SLA سخت p99). trade-off: ZGC ممکن throughput کمی کمتر و مصرف CPU/memory بیشتر داشته باشد. انتخاب: اگر latency و pause بحرانی است (به‌خصوص با heap بزرگ) → ZGC؛ برای throughput عمومی و سادگی → G1. همیشه با اندازه‌گیری (GC log، JFR) تصمیم بگیرید نه فرض.
+G1 متعادل region-based، throughput خوب با pause قابل‌تنظیم (ده‌ها تا صدها ms)؛ پیش‌فرض و برای اکثر. ZGC concurrent، pause <1ms حتی heap چند ترابایتی؛ برای latency-sensitive (trading، SLA سخت p99). trade-off: ZGC throughput کمی کمتر و CPU/memory بیشتر. latency بحرانی (heap بزرگ) → ZGC؛ throughput عمومی → G1. با اندازه‌گیری تصمیم بگیرید.
 
 **نکته مصاحبه:**
 
-Lead trade-off latency/throughput و heap size را می‌داند.
+Lead trade-off latency/throughput را می‌داند.
 
 ---
 
@@ -111,41 +143,41 @@ Lead trade-off latency/throughput و heap size را می‌داند.
 
 **جواب کامل:**
 
-memory leak در Java یعنی اشیاء reachable می‌مانند (GC نمی‌تواند آزادشان کند) در حالی که دیگر لازم نیستند. علائم: heap به‌تدریج رشد می‌کند، Full GC مکرر اما حافظه آزاد نمی‌شود، و نهایتاً `OutOfMemoryError`. فرایند تشخیص: (۱) رصد metric (heap used، GC frequency با Micrometer/JMX) برای تأیید روند صعودی. (۲) گرفتن **heap dump** (با `jmap`، JFR، یا `-XX:+HeapDumpOnOutOfMemoryError`). (۳) تحلیل با Eclipse MAT یا VisualVM: نگاه به **dominator tree** برای یافتن بزرگ‌ترین مصرف‌کننده و مسیر نگه‌داری ارجاع (چه چیزی این اشیاء را زنده نگه داشته). علل رایج: static collection رشدیابنده، cache بدون eviction، listener حذف‌نشده، ThreadLocal در thread pool بدون remove. سپس مرجع را قطع کنید.
+اشیاء reachable می‌مانند در حالی که لازم نیستند → heap رشد، Full GC مکرر، نهایتاً OOM. فرایند: (۱) رصد metric (heap، GC). (۲) heap dump (jmap/JFR/`-XX:+HeapDumpOnOutOfMemoryError`). (۳) تحلیل با MAT (**dominator tree**، مسیر نگه‌داری). علل: static collection، cache بدون eviction، listener، ThreadLocal در pool.
 
 **نکته مصاحبه:**
 
-Lead فرایند سیستماتیک (رصد → heap dump → dominator tree) را شرح می‌دهد.
+Lead فرایند سیستماتیک را شرح می‌دهد.
 
 ---
 
-### سوال ۳: JIT warmup چیست و چرا در benchmark مهم است؟
+### سوال ۳: JIT warmup و چرا در benchmark مهم؟
 
 **سطح:** Senior / Lead
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-کد در ابتدا interpret می‌شود (کند)؛ JIT فقط بعد از اینکه یک متد به‌اندازه‌ی کافی اجرا شد (hot) آن را کامپایل و بهینه می‌کند. این دوره‌ی **warmup** یعنی اجرای اولیه به‌مراتب کندتر از حالت پایدار است. در benchmark، اگر warmup را در نظر نگیرید، نتایج بی‌معنا می‌شوند (زمان interpret را اندازه می‌گیرید نه کد بهینه). به همین دلیل از **JMH** (Java Microbenchmark Harness) استفاده می‌شود که warmup iterationها را اجرا و سپس اندازه می‌گیرد، و از مشکلاتی مثل dead code elimination توسط JIT جلوگیری می‌کند. در production، startup کند (تا JIT warm شود) با AOT/CDS یا GraalVM Native Image بهبود می‌یابد.
+کد ابتدا interpret (کند)؛ JIT بعد از hot شدن کامپایل می‌کند. در benchmark، بدون warmup نتایج بی‌معنا (زمان interpret). از **JMH** استفاده کنید (warmup iteration + جلوگیری از dead code elimination). در production startup کند با AOT/CDS/GraalVM Native بهبود می‌یابد.
 
 **نکته مصاحبه:**
 
-Senior به JMH و خطر benchmark بدون warmup اشاره می‌کند.
+Senior به JMH اشاره می‌کند.
 
 ---
 
-### سوال ۴: چرا `-Xms` و `-Xmx` را برابر می‌گذاریم؟
+### سوال ۴: چرا `-Xms` و `-Xmx` برابر؟
 
 **سطح:** Senior
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-`-Xms` (heap اولیه) و `-Xmx` (حداکثر heap). اگر متفاوت باشند، JVM heap را با رشد نیاز resize می‌کند که هزینه دارد (و gمی‌تواند pause اضافه و fragmentation بیاورد). با برابر گذاشتن، heap از ابتدا کامل تخصیص می‌یابد و resize حین اجرا حذف می‌شود — performance پایدارتر و قابل‌پیش‌بینی‌تر، به‌خصوص در کانتینر با memory limit ثابت. در محیط کانتینری، این با memory limit K8s هماهنگ می‌شود (با `-XX:MaxRAMPercentage`). همچنین از سناریوی «heap کوچک شروع شد، بعد نتوانست بزرگ شود» جلوگیری می‌کند.
+اگر متفاوت، JVM heap را با رشد resize می‌کند (هزینه، pause، fragmentation). برابر → تخصیص کامل از ابتدا، بدون resize → performance پایدار. در کانتینر با memory limit ثابت هماهنگ می‌شود (`-XX:MaxRAMPercentage`).
 
 **نکته مصاحبه:**
 
-Senior به حذف resize و هماهنگی با container limit اشاره می‌کند.
+Senior به حذف resize و container limit اشاره می‌کند.
 
 ---
 
@@ -154,23 +186,22 @@ Senior به حذف resize و هماهنگی با container limit اشاره می
 ### اشتباه ۱: benchmark بدون JMH/warmup
 
 ```java
-// ❌ اندازه‌گیری زمان interpret، نه کد بهینه
-long start = System.nanoTime();
-for (int i = 0; i < 1000; i++) doWork();
+// ❌
+long start = System.nanoTime(); for (int i = 0; i < 1000; i++) doWork();
 ```
 
 ```java
 // ✅ JMH با warmup
 ```
 
-**توضیح:** بدون warmup، نتیجه‌ی benchmark بی‌معناست.
+**توضیح:** بدون warmup نتیجه بی‌معناست.
 
 ---
 
 ### اشتباه ۲: `-Xms` خیلی کوچک
 
 ```bash
-# ❌ resize مکرر
+# ❌
 java -Xms256m -Xmx4g
 ```
 
@@ -183,10 +214,10 @@ java -Xms4g -Xmx4g
 
 ---
 
-### اشتباه ۳: ThreadLocal بدون remove → classloader/memory leak
+### اشتباه ۳: ThreadLocal بدون remove
 
 ```java
-// ❌ در thread pool، مقدار باقی می‌ماند
+// ❌
 threadLocal.set(bigObject);
 ```
 
@@ -201,7 +232,7 @@ try { threadLocal.set(bigObject); ... } finally { threadLocal.remove(); }
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- GC/JIT با **performance & scalability (20)** و **Concurrency (1.6)**.
-- JVM tuning با **Kubernetes resource limits (10.2)** و **Docker**.
+- GC/JIT با **performance** و **Concurrency (1.6)**.
+- JVM tuning با **K8s resource limits (10.2)** و **Docker (10.1)**.
 - JFR با **observability/profiling (10.4)**.
-- memory leak با **JMM** و **ThreadLocal/ScopedValues (1.6)**.
+- memory leak با **JMM (12.1)** و **ThreadLocal/ScopedValues (1.6)**.
