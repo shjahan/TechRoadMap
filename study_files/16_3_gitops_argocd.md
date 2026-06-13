@@ -1,6 +1,41 @@
 # GitOps با ArgoCD
 
-> GitOps: Git به‌عنوان منبع حقیقت برای وضعیت cluster. ArgoCD آن را sync می‌کند.
+> GitOps: Git به‌عنوان منبع حقیقت برای وضعیت cluster. ArgoCD آن را sync می‌کند. این فایل با دیاگرام گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((GitOps))
+    Git source of truth
+    ArgoCD
+      sync/prune/selfHeal
+    Progressive Delivery
+      Canary
+      Blue/Green
+```
+
+---
+
+## جریان GitOps (pull-based)
+
+```mermaid
+flowchart LR
+    Dev[commit به Git] --> Git[(Git repo)]
+    Git -->|pull| ArgoCD[ArgoCD داخل cluster]
+    ArgoCD -->|sync| K8s[Cluster]
+    K8s -.->|drift| ArgoCD
+    ArgoCD -.->|selfHeal| K8s
+```
 
 ---
 
@@ -10,7 +45,7 @@
 
 **توضیح:**
 
-GitOps یعنی وضعیت مطلوب cluster در Git تعریف می‌شود و یک ابزار (ArgoCD/Flux) به‌طور مداوم cluster را با Git sync می‌کند. مزایا: Git به‌عنوان single source of truth، audit کامل (تاریخچه‌ی Git)، rollback آسان (revert commit)، و **declarative** (به‌جای دستورات دستی `kubectl`). **ArgoCD** تفاوت بین Git و cluster را تشخیص و sync می‌کند.
+وضعیت مطلوب در Git؛ ابزار (ArgoCD/Flux) cluster را با Git sync می‌کند. مزایا: Git منبع حقیقت، audit، rollback (revert commit)، declarative.
 
 **مثال کد:**
 
@@ -18,22 +53,17 @@ GitOps یعنی وضعیت مطلوب cluster در Git تعریف می‌شود 
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 spec:
-  source:
-    repoURL: https://github.com/myorg/myapp
-    targetRevision: main
-    path: k8s/overlays/prod
+  source: { repoURL: https://github.com/myorg/myapp, targetRevision: main, path: k8s/overlays/prod }
   destination: { server: https://kubernetes.default.svc, namespace: production }
   syncPolicy:
-    automated:
-      prune: true       # حذف منابع حذف‌شده از Git
-      selfHeal: true    # revert تغییر دستی cluster
+    automated: { prune: true, selfHeal: true } # revert تغییر دستی
 ```
 
 **نکات کلیدی:**
 
-- Git منبع حقیقت؛ تغییر دستی cluster خودکار revert می‌شود (selfHeal).
-- rollback = revert commit در Git.
-- audit کامل از طریق Git history.
+- Git منبع حقیقت؛ selfHeal تغییر دستی را revert می‌کند.
+- rollback = revert commit.
+- audit از Git history.
 
 ---
 
@@ -41,12 +71,12 @@ spec:
 
 **توضیح:**
 
-**Manual** (نیاز approve) در برابر **Automated** (هر تغییر Git → deploy). **Progressive Delivery** با Argo Rollouts: **Canary** (10% → 25% → 50% → 100% تدریجی با metric analysis)، **Blue/Green** (دو environment، switch فوری). برای deploy کم‌ریسک.
+Manual/Automated. **Progressive Delivery** با Argo Rollouts: **Canary** (10%→25%→100% با metric)، **Blue/Green** (switch فوری).
 
 **نکات کلیدی:**
 
-- Canary برای کاهش ریسک (تدریجی + rollback خودکار اگر metric بد).
-- Blue/Green برای switch فوری و rollback آنی.
+- Canary برای کاهش ریسک.
+- Blue/Green برای switch/rollback فوری.
 
 ---
 
@@ -59,26 +89,26 @@ spec:
 
 **جواب کامل:**
 
-deploy سنتی (push-based با `kubectl apply` از CI) مشکلاتی دارد: CI به cluster credential نیاز دارد (سطح حمله)، تغییرات دستی track نمی‌شوند (drift)، و rollback دستی است. GitOps (pull-based) این‌ها را حل می‌کند: (۱) **Git منبع حقیقت** — وضعیت cluster همیشه با Git مطابق است؛ تغییر دستی با selfHeal خودکار revert می‌شود. (۲) **audit کامل** — هر تغییر یک commit با author و زمان است. (۳) **rollback آسان** — فقط revert commit. (۴) **امنیت** — ArgoCD داخل cluster pull می‌کند، پس CI به cluster credential نیاز ندارد. (۵) **declarative و reproducible**. trade-off: نیاز به ابزار اضافه (ArgoCD) و یادگیری، و برای secret نیاز به External Secrets/Sealed Secrets (نباید plaintext در Git).
+deploy سنتی (push از CI): CI نیاز cluster credential، drift، rollback دستی. GitOps (pull): Git منبع حقیقت (selfHeal)، audit، rollback آسان (revert)، امنیت (ArgoCD داخل cluster pull می‌کند، CI به credential نیاز ندارد)، declarative. trade-off: ابزار اضافه و secret نیاز External Secrets/Sealed Secrets.
 
 **نکته مصاحبه:**
 
-Lead به pull-based، selfHeal، و امنیت credential اشاره می‌کند.
+Lead به pull-based، selfHeal، امنیت credential اشاره می‌کند.
 
 ---
 
-### سوال ۲: Canary در برابر Blue/Green deployment؟
+### سوال ۲: Canary در برابر Blue/Green؟
 
 **سطح:** Lead
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-**Blue/Green** دو محیط کامل (blue=فعلی، green=جدید) دارد؛ بعد از تست green، ترافیک یکجا switch می‌شود؛ rollback فوری (برگشت به blue). مزیت: switch و rollback آنی، تست کامل قبل از switch. عیب: نیاز به دو برابر منابع، و همه‌ی کاربران یکجا به نسخه‌ی جدید می‌روند (اگر مشکل پنهان باشد، همه تأثیر می‌بینند). **Canary** نسخه‌ی جدید را تدریجی به درصد کمی از ترافیک می‌دهد (۵٪ → ۲۵٪ → ...) با تحلیل metric؛ اگر مشکل دیده شود، خودکار rollback. مزیت: blast radius کوچک (فقط درصد کمی تأثیر می‌بینند)، تشخیص زود مشکل با ترافیک واقعی. عیب: کندتر، نیاز به metric/automation و مدیریت دو نسخه‌ی همزمان. انتخاب: Canary برای ریسک‌گریزی و تغییرات بزرگ؛ Blue/Green برای switch سریع و تست کامل.
+Blue/Green دو محیط، switch یکجا، rollback فوری؛ اما دو برابر منابع و همه‌ی کاربران یکجا. Canary تدریجی به درصد کم با metric؛ blast radius کوچک، تشخیص زود؛ اما کندتر، نیاز automation. Canary برای ریسک‌گریزی؛ Blue/Green برای switch سریع.
 
 **نکته مصاحبه:**
 
-Lead به blast radius و trade-off منابع اشاره می‌کند.
+Lead به blast radius اشاره می‌کند.
 
 ---
 
@@ -88,27 +118,27 @@ Lead به blast radius و trade-off منابع اشاره می‌کند.
 
 ```text
 ❌ Secret در Git → نشت
-✅ Sealed Secrets / External Secrets Operator
+✅ Sealed Secrets / External Secrets
 ```
 
-**توضیح:** Git همه‌چیز را history می‌کند؛ secret خام نشت دائمی است.
+**توضیح:** Git history secret خام را برای همیشه نگه می‌دارد.
 
 ---
 
 ### اشتباه ۲: تغییر دستی cluster با GitOps فعال
 
 ```text
-❌ kubectl edit دستی → selfHeal آن را revert می‌کند (سردرگمی)
-✅ همه‌ی تغییرات از طریق Git
+❌ kubectl edit → selfHeal revert می‌کند
+✅ همه از طریق Git
 ```
 
-**توضیح:** با GitOps، تغییر باید در Git باشد نه دستی.
+**توضیح:** با GitOps تغییر باید در Git باشد.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- GitOps با **Kubernetes (10.2)** و **CI/CD (10.3)**.
-- secret با **External Secrets/Sealed Secrets (16.5)**.
-- Helm/Kustomize (16.1) به‌عنوان منبع manifest در Git.
+- با **Kubernetes (10.2)** و **CI/CD (10.3)**.
+- secret با **External/Sealed Secrets (16.5)**.
+- Helm/Kustomize (16.1) منبع manifest.
 - progressive delivery با **resilience (15.2)**.
