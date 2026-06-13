@@ -99,7 +99,7 @@ Senior هر سه و راه بهبود را می‌داند.
 
 **جواب کامل:**
 
-render هزاران آیتم → هزاران DOM node (حافظه، render کند، scroll lag). virtualization فقط visible (مثلاً ۲۰) را render؛ هنگام scroll، آیتم جدید mount/قدیمی unmount. DOM ثابت مستقل از تعداد. trade-go: پیچیدگی، ارتفاع متغیر.
+render هزاران آیتم → هزاران DOM node (حافظه، render کند، scroll lag). virtualization فقط visible (مثلاً ۲۰) را render؛ هنگام scroll، آیتم جدید mount/قدیمی unmount. DOM ثابت مستقل از تعداد. trade-off: پیچیدگی، ارتفاع متغیر.
 
 **نکته مصاحبه:**
 
