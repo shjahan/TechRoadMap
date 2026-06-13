@@ -1,6 +1,52 @@
 # Spring Security — Authentication، Authorization، OAuth2، Keycloak
 
-> امنیت در هر مصاحبه‌ی backend پرسیده می‌شود. درک filter chain و JWT validation تمایز Senior است.
+> امنیت در هر مصاحبه‌ی backend پرسیده می‌شود. درک filter chain و JWT validation تمایز Senior است. این فایل با دیاگرام و مثال‌های متعدد گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Spring Security))
+    Filter Chain
+      SecurityFilterChain
+      lambda DSL
+    Authentication
+      UserDetailsService
+      PasswordEncoder
+      AuthenticationManager
+    Authorization
+      authorizeHttpRequests
+      PreAuthorize method security
+    OAuth2/OIDC
+      grant types
+      Resource Server
+      JWT
+    Keycloak
+```
+
+---
+
+## جریان فیلتر امنیتی
+
+```mermaid
+flowchart LR
+    Req[Request] --> F1[CORS Filter]
+    F1 --> F2[CSRF Filter]
+    F2 --> F3[BearerToken/UsernamePassword Filter]
+    F3 --> F4[Authorization Filter]
+    F4 -->|مجاز| Controller
+    F4 -.->|403| Denied
+    F3 -.->|401| Unauthenticated
+```
 
 ---
 
@@ -10,22 +56,15 @@
 
 **توضیح:**
 
-Spring Security روی زنجیره‌ای از servlet filterها بنا شده. هر request از این زنجیره عبور می‌کند و هر filter یک مسئولیت دارد: استخراج credential، authentication، authorization، CSRF، CORS، و … . از Spring Security 6، پیکربندی با bean از نوع `SecurityFilterChain` و lambda DSL انجام می‌شود (روش قدیمی `WebSecurityConfigurerAdapter` حذف شده).
-
-ترتیب filterها مهم است: مثلاً `UsernamePasswordAuthenticationFilter`, `BearerTokenAuthenticationFilter`, `AuthorizationFilter`. درک این زنجیره برای دیباگ «چرا 401/403 می‌گیرم» ضروری است.
-
-**چرا مهم است:**
-
-پیکربندی اشتباه امنیت = آسیب‌پذیری جدی. درک معماری filter برای customize کردن (مثل افزودن JWT filter سفارشی) لازم است.
+Spring Security روی زنجیره‌ای از servlet filterها بنا شده. هر request از این زنجیره عبور می‌کند و هر filter یک مسئولیت دارد. از Spring Security 6، پیکربندی با bean `SecurityFilterChain` و lambda DSL (روش قدیمی `WebSecurityConfigurerAdapter` حذف شده).
 
 **مثال کد:**
 
 ```java
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity // برای @PreAuthorize
+@EnableMethodSecurity
 public class SecurityConfig {
-
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         return http
@@ -43,8 +82,8 @@ public class SecurityConfig {
 
 **نکات کلیدی:**
 
-- از Spring Security 6 از lambda DSL و `SecurityFilterChain` استفاده کنید.
-- برای API با JWT، session را STATELESS و CSRF را disable کنید.
+- از Spring Security 6 lambda DSL و `SecurityFilterChain`.
+- برای API با JWT: session STATELESS و CSRF disable.
 - ترتیب requestMatcherها از خاص به عام.
 
 ---
@@ -53,40 +92,33 @@ public class SecurityConfig {
 
 **توضیح:**
 
-- `UserDetailsService` کاربر را بر اساس username بارگذاری می‌کند و `UserDetails` (username، password hash، authorities) برمی‌گرداند.
-- `AuthenticationManager` فرایند authentication را هماهنگ می‌کند؛ به `AuthenticationProvider`ها واگذار می‌کند.
-- `PasswordEncoder` رمز را hash می‌کند — همیشه از الگوریتم مدرن (BCrypt یا Argon2) استفاده کنید، هرگز plaintext یا MD5/SHA ساده.
+`UserDetailsService` کاربر را بارگذاری می‌کند. `AuthenticationManager` فرایند را هماهنگ می‌کند. `PasswordEncoder` رمز را hash می‌کند — همیشه BCrypt یا Argon2، هرگز plaintext/MD5.
 
 **مثال کد:**
 
 ```java
 @Bean
-PasswordEncoder passwordEncoder() {
-    return new BCryptPasswordEncoder(12); // strength=12، تطبیق با سخت‌افزار
-}
+PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(12); }
 
 @Service
 class DbUserDetailsService implements UserDetailsService {
     private final UserRepository repo;
     DbUserDetailsService(UserRepository repo) { this.repo = repo; }
-
     @Override
     public UserDetails loadUserByUsername(String username) {
         User u = repo.findByUsername(username)
             .orElseThrow(() -> new UsernameNotFoundException(username));
         return org.springframework.security.core.userdetails.User
-            .withUsername(u.getUsername())
-            .password(u.getPasswordHash())
-            .roles(u.getRoles().toArray(String[]::new))
-            .build();
+            .withUsername(u.getUsername()).password(u.getPasswordHash())
+            .roles(u.getRoles().toArray(String[]::new)).build();
     }
 }
 ```
 
 **نکات کلیدی:**
 
-- BCrypt/Argon2 با salt خودکار؛ هرگز رمز را plaintext ذخیره نکنید.
-- BCrypt strength را با قدرت سخت‌افزار تنظیم کنید (پیش‌فرض 10).
+- BCrypt/Argon2 با salt خودکار؛ هرگز plaintext.
+- BCrypt strength را با سخت‌افزار تنظیم کنید.
 
 ---
 
@@ -94,7 +126,7 @@ class DbUserDetailsService implements UserDetailsService {
 
 **توضیح:**
 
-دو سطح: URL-based (در `authorizeHttpRequests`) و method-based (`@PreAuthorize`, `@PostAuthorize`, `@Secured`). `@PreAuthorize` قبل از اجرای متد با SpEL چک می‌کند؛ `@PostAuthorize` بعد از اجرا روی نتیجه. method security قدرت بیشتری (دسترسی به آرگومان‌ها و نتیجه) می‌دهد.
+دو سطح: URL-based و method-based (`@PreAuthorize`, `@PostAuthorize`). `@PreAuthorize` قبل از اجرا با SpEL؛ `@PostAuthorize` بعد از اجرا روی نتیجه.
 
 **مثال کد:**
 
@@ -102,31 +134,30 @@ class DbUserDetailsService implements UserDetailsService {
 @Service
 class DocumentService {
     @PreAuthorize("hasRole('ADMIN') or #ownerId == authentication.name")
-    public Document getDocument(String ownerId, Long docId) { /* ... */ return null; }
+    public Document getDocument(String ownerId, Long docId) { return null; }
 
     @PostAuthorize("returnObject.owner == authentication.name")
-    public Document loadDocument(Long id) { /* ... */ return null; }
+    public Document loadDocument(Long id) { return null; }
 }
 ```
 
 **نکات کلیدی:**
 
 - `@EnableMethodSecurity` را فعال کنید.
-- method security با AOP کار می‌کند → self-invocation همان محدودیت.
-- ترکیب URL-based و method-based برای defense in depth.
+- method security با AOP کار می‌کند → self-invocation محدودیت.
 
 ---
 
-### CSRF — کِی لازم، کِی نه
+### CSRF — کِی لازم
 
 **توضیح:**
 
-CSRF حمله‌ای است که در آن سایت مخرب از session cookie کاربر برای ارسال request جعلی سوءاستفاده می‌کند. محافظت با CSRF token. اما CSRF فقط وقتی relevant است که از **cookie-based session** استفاده می‌کنید. برای API stateless با JWT در header `Authorization`، مرورگر آن را خودکار نمی‌فرستد پس CSRF موضوعیت ندارد و معمولاً disable می‌شود.
+CSRF فقط وقتی relevant است که **cookie-based session** دارید. برای API stateless با JWT در header `Authorization`، مرورگر آن را خودکار نمی‌فرستد پس CSRF موضوعیت ندارد.
 
 **نکات کلیدی:**
 
-- API stateless + JWT header → CSRF disable منطقی است.
-- اپ سنتی با session cookie → CSRF باید فعال بماند.
+- API stateless + JWT header → CSRF disable منطقی.
+- اپ سنتی با session cookie → CSRF فعال بماند.
 
 ---
 
@@ -134,22 +165,31 @@ CSRF حمله‌ای است که در آن سایت مخرب از session cookie
 
 **توضیح:**
 
-OAuth 2.0 چارچوب **authorization** (نه authentication) است. نقش‌ها: Resource Owner (کاربر)، Client (اپ)، Authorization Server (صادرکننده‌ی token)، Resource Server (API محافظت‌شده). **Grant types:** Authorization Code + PKCE (برای web/mobile)، Client Credentials (سرویس‌به‌سرویس)، Device Code (IoT/CLI). (Implicit و Password deprecated شده‌اند.)
+OAuth 2.0 چارچوب **authorization**. نقش‌ها: Resource Owner، Client، Authorization Server، Resource Server. **Grant types:** Authorization Code + PKCE (web/mobile)، Client Credentials (M2M)، Device Code. **OIDC** لایه‌ی authentication روی OAuth با **ID Token** (JWT).
 
-**OIDC** لایه‌ی authentication روی OAuth است و **ID Token** (JWT با اطلاعات کاربر) اضافه می‌کند. Spring با `oauth2ResourceServer().jwt()` به‌عنوان Resource Server، token را اعتبارسنجی می‌کند (signature، expiry، issuer، audience).
-
-**چرا مهم است:**
-
-استاندارد صنعتی برای auth در میکروسرویس‌ها. درک تفاوت authentication/authorization و grant types ضروری است.
+```mermaid
+sequenceDiagram
+    participant User
+    participant Client
+    participant Auth as Authorization Server
+    participant API as Resource Server
+    User->>Client: login
+    Client->>Auth: Authorization Code + PKCE
+    Auth-->>Client: code
+    Client->>Auth: code + verifier → token
+    Auth-->>Client: access token (JWT)
+    Client->>API: Bearer JWT
+    API->>API: validate (signature/exp/iss/aud)
+    API-->>Client: data
+```
 
 **مثال کد:**
 
 ```java
-// تبدیل claims به authorities
 @Bean
 JwtAuthenticationConverter jwtAuthConverter() {
     JwtGrantedAuthoritiesConverter granted = new JwtGrantedAuthoritiesConverter();
-    granted.setAuthoritiesClaimName("roles"); // claim حاوی roleها
+    granted.setAuthoritiesClaimName("roles");
     granted.setAuthorityPrefix("ROLE_");
     JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
     converter.setJwtGrantedAuthoritiesConverter(granted);
@@ -160,8 +200,8 @@ JwtAuthenticationConverter jwtAuthConverter() {
 **نکات کلیدی:**
 
 - OAuth = authorization، OIDC = authentication.
-- Authorization Code + PKCE برای کلاینت‌های عمومی (SPA/mobile).
-- token را همیشه validate کنید: signature + expiry + issuer + audience.
+- Authorization Code + PKCE برای کلاینت عمومی.
+- token را validate کنید: signature + expiry + issuer + audience.
 
 ---
 
@@ -169,9 +209,9 @@ JwtAuthenticationConverter jwtAuthConverter() {
 
 **توضیح:**
 
-**JWT** سه بخش دارد: Header.Payload.Signature. امضا با HS256 (symmetric، یک کلید مشترک) یا RS256/ES256 (asymmetric، کلید خصوصی برای امضا، عمومی برای validation — ترجیح در میکروسرویس چون Resource Server فقط کلید عمومی نیاز دارد). مشکل اصلی JWT: **revocation سخت است** چون stateless و تا expiry معتبر. راه‌حل: expiry کوتاه + refresh token، یا blacklist در Redis.
+**JWT:** Header.Payload.Signature. امضا با HS256 (symmetric) یا RS256/ES256 (asymmetric — ترجیح microservice). مشکل: revocation سخت چون stateless. راه‌حل: expiry کوتاه + refresh token، یا blacklist در Redis.
 
-**Keycloak** یک Identity Provider متن‌باز است: Realm (tenant)، Client (public/confidential/bearer-only)، Realm Roles vs Client Roles، User Federation (LDAP/AD)، Identity Provider (Google/GitHub). adapter قدیمی deprecated شده؛ روش مدرن استفاده از Keycloak به‌عنوان OAuth2/OIDC provider و Spring به‌عنوان Resource Server است.
+**Keycloak:** Realm، Client، Realm/Client Roles، User Federation. روش مدرن: Keycloak به‌عنوان provider و Spring به‌عنوان Resource Server.
 
 **مثال کد:**
 
@@ -181,79 +221,76 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          # validation محلی JWT با کلید عمومی از JWKS
           issuer-uri: https://keycloak.example.com/realms/myrealm
 ```
 
 **نکات کلیدی:**
 
-- RS256 در میکروسرویس بهتر از HS256 (کلید خصوصی فاش نمی‌شود).
-- JWT را نمی‌توان به‌راحتی revoke کرد → expiry کوتاه + refresh token.
-- local validation (JWKS) سریع‌تر از introspection (هر بار فراخوانی auth server) است اما introspection امکان revocation فوری می‌دهد.
+- RS256 در microservice بهتر از HS256.
+- JWT را نمی‌توان به‌راحتی revoke کرد → expiry کوتاه.
+- local validation (JWKS) سریع؛ introspection امکان revocation فوری.
 
 ---
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: تفاوت authentication و authorization چیست؟
+### سوال ۱: تفاوت authentication و authorization؟
 
 **سطح:** Junior / Mid
 **تکرار:** خیلی زیاد
 
 **جواب کامل:**
 
-Authentication یعنی «تو کی هستی؟» — تأیید هویت (با رمز، token، biometrics). Authorization یعنی «اجازه‌ی چه کاری داری؟» — کنترل دسترسی به منابع بر اساس نقش/مجوز. اول authentication، سپس authorization. OAuth 2.0 چارچوب authorization است؛ OIDC لایه‌ی authentication روی آن. در Spring، authentication منجر به یک `Authentication` در `SecurityContext` می‌شود و authorization با authorities/roles روی آن چک می‌شود.
+Authentication: «تو کی هستی؟» — تأیید هویت. Authorization: «اجازه‌ی چه کاری داری؟» — کنترل دسترسی. اول authentication، سپس authorization. OAuth چارچوب authorization؛ OIDC لایه‌ی authentication.
 
 **نکته مصاحبه:**
 
-تمایز Senior: دانستن اینکه OAuth خودش authentication نیست (OIDC است). Follow-up: «چرا OAuth برای authentication ناکافی است؟»
+تمایز Senior: OAuth خودش authentication نیست.
 
 ---
 
-### سوال ۲: JWT چطور validate می‌شود و revocation چرا سخت است؟
+### سوال ۲: JWT چطور validate و چرا revocation سخت است؟
 
 **سطح:** Senior
 **تکرار:** خیلی زیاد
 
 **جواب کامل:**
 
-validation شامل: (۱) بررسی signature با کلید (symmetric یا کلید عمومی از JWKS endpoint)، (۲) بررسی expiry (`exp`)، (۳) بررسی issuer (`iss`) و audience (`aud`)، (۴) گاهی `nbf` (not before). اگر همه درست بود، token معتبر است — بدون فراخوانی auth server (stateless validation).
-
-همین stateless بودن، revocation را سخت می‌کند: سرور state نگه نمی‌دارد، پس یک token دزدیده‌شده تا expiry معتبر می‌ماند. راه‌حل‌ها: expiry کوتاه (مثلاً ۵-۱۵ دقیقه) + refresh token بلندمدت؛ blacklist token در Redis (که stateless بودن را تا حدی نقض می‌کند)؛ یا token introspection (هر بار از auth server بپرس) که امکان revocation فوری می‌دهد اما کندتر است.
+validation: signature (با کلید/JWKS)، expiry، issuer، audience — بدون فراخوانی auth server (stateless). همین revocation را سخت می‌کند: token دزدیده‌شده تا expiry معتبر. راه‌حل: expiry کوتاه + refresh token؛ blacklist در Redis؛ یا introspection (revocation فوری اما کندتر).
 
 **نکته مصاحبه:**
 
-تمایز Senior: trade-off بین local validation (سریع، بدون revocation) و introspection (کند، با revocation). Follow-up: «refresh token را کجا ذخیره می‌کنی؟» (httpOnly cookie، نه localStorage).
+Senior trade-off local validation/introspection را می‌داند. Follow-up: «refresh token کجا ذخیره؟» (httpOnly cookie).
 
 ---
 
-### سوال ۳: Authorization Code + PKCE چیست و چرا برای SPA؟
+### سوال ۳: Authorization Code + PKCE چیست و چرا SPA؟
 
 **سطح:** Senior
 **تکرار:** زیاد
 
 **جواب کامل:**
 
-Authorization Code flow کاربر را به auth server هدایت می‌کند، یک code کوتاه‌عمر می‌گیرد، و سپس اپ آن code را با client secret به token تبدیل می‌کند. مشکل: SPA و mobile نمی‌توانند client secret را امن نگه دارند (در کد فاش می‌شود). **PKCE** این را حل می‌کند: کلاینت یک `code_verifier` تصادفی می‌سازد، `code_challenge` (hash آن) را با درخواست اولیه می‌فرستد، و هنگام تبدیل code به token، `code_verifier` اصلی را ارائه می‌دهد. auth server تطابق را چک می‌کند. این تضمین می‌کند فقط کلاینتی که flow را شروع کرده می‌تواند token بگیرد، حتی اگر code رهگیری شود — بدون نیاز به secret.
+SPA/mobile نمی‌توانند client secret را امن نگه دارند. PKCE: کلاینت `code_verifier` تصادفی می‌سازد، `code_challenge` (hash) را می‌فرستد، و هنگام تبدیل code به token `code_verifier` را ارائه می‌دهد. حتی اگر code رهگیری شود، بدون verifier نمی‌توان token گرفت — جایگزین secret.
 
 **نکته مصاحبه:**
 
-Senior می‌داند PKCE جایگزین secret برای کلاینت عمومی است. Follow-up: «چرا Implicit flow deprecated شد؟» (token در URL fragment فاش می‌شود).
+Senior: PKCE حالا برای همه توصیه می‌شود.
 
 ---
 
-### سوال ۴: token introspection در برابر local JWT validation — کدام؟
+### سوال ۴: introspection در برابر local JWT validation؟
 
 **سطح:** Lead
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-local validation: Resource Server خودش JWT را با کلید عمومی (JWKS) چک می‌کند، بدون فراخوانی شبکه — سریع و scalable، اما نمی‌تواند revocation را تشخیص دهد تا expiry. introspection: هر بار Resource Server از auth server می‌پرسد token معتبر است — کندتر و وابسته به auth server، اما revocation فوری و امکان opaque token. انتخاب: برای latency و scale بالا با تحمل ریسک revocation، local؛ برای امنیت سخت‌گیرانه با نیاز revocation فوری، introspection. ترکیب رایج: local validation + expiry کوتاه + blacklist برای موارد بحرانی.
+local: Resource Server خودش با کلید عمومی validate می‌کند — سریع، scalable، اما بدون revocation تا expiry. introspection: هر بار از auth server می‌پرسد — کندتر اما revocation فوری. انتخاب: latency/scale → local؛ امنیت سخت‌گیرانه → introspection. ترکیب: local + expiry کوتاه + blacklist بحرانی.
 
 **نکته مصاحبه:**
 
-Lead trade-off latency/scale در برابر revocation را می‌فهمد.
+Lead trade-off latency/revocation را می‌فهمد.
 
 ---
 
@@ -264,83 +301,78 @@ Lead trade-off latency/scale در برابر revocation را می‌فهمد.
 
 **جواب کامل:**
 
-حمله‌ی CSRF متکی بر این است که مرورگر cookie را خودکار با هر request به دامنه می‌فرستد، پس سایت مخرب می‌تواند از session کاربر سوءاستفاده کند. اما وقتی authentication با JWT در header `Authorization: Bearer ...` است، مرورگر این header را خودکار نمی‌فرستد؛ JavaScript اپ باید صریحاً اضافه‌اش کند. بنابراین سایت مخرب نمی‌تواند token را به request جعلی بچسباند و CSRF موضوعیت ندارد. به همین دلیل برای API stateless با JWT، CSRF disable می‌شود. اما اگر token را در cookie ذخیره کنید، CSRF دوباره relevant می‌شود.
+CSRF متکی بر ارسال خودکار cookie توسط مرورگر است. با JWT در header `Authorization`، مرورگر آن را خودکار نمی‌فرستد، پس سایت مخرب نمی‌تواند token را به request جعلی بچسباند. اما اگر token در cookie باشد، CSRF برمی‌گردد (SameSite لازم).
 
 **نکته مصاحبه:**
 
-Senior به شرط «token در header نه cookie» اشاره می‌کند. Follow-up: «اگر JWT را در cookie بگذاری چه؟» (CSRF برمی‌گردد، SameSite لازم می‌شود).
+Senior به شرط «token در header نه cookie» اشاره می‌کند.
 
 ---
 
 ## ⚠️ اشتباهات رایج
 
-### اشتباه ۱: ذخیره‌ی رمز به‌صورت plaintext یا hash ضعیف
+### اشتباه ۱: رمز plaintext یا hash ضعیف
 
 ```java
 // ❌
-user.setPassword(rawPassword);
-// یا MD5/SHA-1 بدون salt
+user.setPassword(rawPassword); // یا MD5
 ```
 
 ```java
 // ✅
-user.setPasswordHash(passwordEncoder.encode(rawPassword)); // BCrypt/Argon2
+user.setPasswordHash(passwordEncoder.encode(rawPassword));
 ```
 
-**توضیح:** رمز باید با الگوریتم مقاوم در برابر brute-force و salt خودکار hash شود.
+**توضیح:** رمز باید با BCrypt/Argon2 و salt hash شود.
 
 ---
 
-### اشتباه ۲: ذخیره‌ی JWT در localStorage
+### اشتباه ۲: JWT در localStorage
 
 ```javascript
-// ❌ آسیب‌پذیر در برابر XSS
+// ❌ آسیب‌پذیر XSS
 localStorage.setItem('token', jwt);
 ```
 
 ```javascript
-// ✅ httpOnly cookie (غیرقابل دسترس JS) برای refresh token
-// access token در memory
+// ✅ httpOnly cookie برای refresh token
 ```
 
-**توضیح:** localStorage در برابر XSS آسیب‌پذیر است؛ httpOnly cookie امن‌تر.
+**توضیح:** localStorage در برابر XSS آسیب‌پذیر است.
 
 ---
 
-### اشتباه ۳: expiry طولانی برای access token
+### اشتباه ۳: expiry طولانی access token
 
 ```yaml
-# ❌ token دزدیده‌شده ساعت‌ها معتبر
+# ❌
 access-token-validity: 86400
 ```
 
 ```yaml
-# ✅ کوتاه + refresh token
-access-token-validity: 900  # 15 دقیقه
+# ✅
+access-token-validity: 900  # 15 دقیقه + refresh
 ```
 
-**توضیح:** چون revocation سخت است، پنجره‌ی سوءاستفاده را با expiry کوتاه کم کنید.
+**توضیح:** چون revocation سخت است، پنجره را کوتاه کنید.
 
 ---
 
-### اشتباه ۴: HS256 با کلید مشترک در میکروسرویس‌ها
+### اشتباه ۴: HS256 با کلید مشترک در microservice
 
-```yaml
-# ❌ هر سرویس کلید مشترک دارد → فاش شدن یکی = همه
+```text
+❌ کلید مشترک → فاش یکی = جعل همه
+✅ RS256: کلید عمومی برای validation
 ```
 
-```yaml
-# ✅ RS256: auth server کلید خصوصی، سرویس‌ها فقط کلید عمومی
-```
-
-**توضیح:** asymmetric (RS256) کلید امضا را از Resource Serverها جدا نگه می‌دارد.
+**توضیح:** asymmetric کلید امضا را جدا نگه می‌دارد.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- filter chain با **Spring MVC** و معماری servlet گره خورده.
-- OAuth/OIDC/Keycloak با فصل **Security (7)** و **microservices** عمیق مرتبط است.
-- JWT با **Redis** (blacklist) و **API Gateway** (validation متمرکز) ترکیب می‌شود.
-- method security با **AOP/proxy** (self-invocation) از Spring Core.
-- `@PreAuthorize` با **DDD** و کنترل دسترسی دامنه‌ای.
+- filter chain با **Spring MVC (2.3)** و servlet.
+- OAuth/OIDC/Keycloak با **Security (7.2)** و **microservices (6.1)**.
+- JWT با **Redis blacklist (9.1)** و **API Gateway (2.6)**.
+- method security با **AOP/proxy (2.1)**.
+- `@PreAuthorize` با **IDOR/Security (7.1)**.
