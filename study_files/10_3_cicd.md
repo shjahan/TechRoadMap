@@ -1,6 +1,45 @@
 # CI/CD — GitLab CI، GitHub Actions، Pipeline Best Practices
 
-> اتوماسیون build/test/deploy. درک pipeline و امنیت در آن برای Senior لازم است.
+> اتوماسیون build/test/deploy. درک pipeline و امنیت در آن برای Senior لازم است. این فایل با دیاگرام گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((CI/CD))
+    Pipeline
+      test/build/deploy
+      fail fast
+    GitHub Actions
+      matrix
+      cache
+    Best Practices
+      commit SHA tag
+      secrets
+      security scanning
+```
+
+---
+
+## جریان Pipeline
+
+```mermaid
+flowchart LR
+    Commit[commit/PR] --> Test[test]
+    Test -->|pass| Build[build + push image SHA]
+    Build --> Scan[security scan]
+    Scan --> Deploy[deploy dev/staging/prod]
+    Test -.->|fail| Stop[توقف - fail fast]
+```
 
 ---
 
@@ -10,20 +49,14 @@
 
 **توضیح:**
 
-**CI (Continuous Integration):** ادغام مکرر کد با build و test خودکار تا مشکلات زود پیدا شوند. **CD (Continuous Delivery/Deployment):** آماده‌سازی/استقرار خودکار. pipeline مجموعه‌ای از stageها (test، build، deploy) است. ابزارها: GitLab CI (`.gitlab-ci.yml`)، GitHub Actions (`.github/workflows/`)، Jenkins.
-
-**چرا مهم است:**
-
-CI/CD کیفیت و سرعت تحویل را بالا می‌برد. درک pipeline و امنیت آن (supply chain) برای Senior لازم است.
+CI: ادغام مکرر + build/test خودکار. CD: آماده‌سازی/استقرار خودکار. pipeline دنباله‌ی stage. ابزار: GitLab CI، GitHub Actions، Jenkins.
 
 **مثال کد:**
 
 ```yaml
 # GitLab CI
 stages: [test, build, deploy]
-test:
-  stage: test
-  script: [mvn test]
+test: { stage: test, script: [mvn test] }
 build:
   stage: build
   script:
@@ -31,16 +64,14 @@ build:
     - docker push myapp:$CI_COMMIT_SHA
 deploy:
   stage: deploy
-  environment: production
-  script:
-    - kubectl set image deployment/myapp app=myapp:$CI_COMMIT_SHA
+  script: [kubectl set image deployment/myapp app=myapp:$CI_COMMIT_SHA]
   only: [main]
 ```
 
 **نکات کلیدی:**
 
-- از commit SHA (نه `latest`) برای tag image استفاده کنید (traceability).
-- اسرار را در CI variables (نه در کد) نگه دارید.
+- از commit SHA (نه `latest`) برای tag.
+- اسرار در CI variables.
 
 ---
 
@@ -48,7 +79,7 @@ deploy:
 
 **توضیح:**
 
-workflow با event (`push`, `pull_request`, `schedule`, `workflow_dispatch`) trigger می‌شود. Jobها (موازی)، Steps، و Actions (قابل‌استفاده‌ی مجدد). Secrets و Variables، و **matrix strategy** برای تست موازی روی چند نسخه/پلتفرم.
+workflow با event (`push`, `pull_request`, ...). Jobs، Steps، Actions. **matrix** برای تست موازی.
 
 **مثال کد:**
 
@@ -58,8 +89,7 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix: { java: [17, 21] }   # تست روی چند نسخه
+    strategy: { matrix: { java: [17, 21] } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -69,8 +99,8 @@ jobs:
 
 **نکات کلیدی:**
 
-- matrix برای تست روی چند نسخه/OS موازی.
-- cache dependency (`~/.m2`) برای سرعت.
+- matrix برای چند نسخه/OS.
+- cache dependency برای سرعت.
 
 ---
 
@@ -78,66 +108,55 @@ jobs:
 
 **توضیح:**
 
-- **Fail fast:** test سریع اول؛ اگر شکست خورد، ادامه نده.
-- **Cache dependencies** (`~/.m2`, `node_modules`) و Docker layer.
-- **Parallel jobs** برای سرعت.
-- **Environment-specific deployment** (dev/staging/prod).
-- **Rollback strategy.**
-- **Security scanning:** SAST، DAST، dependency check، container scan.
+fail fast، cache (`~/.m2`)، parallel jobs، environment-specific، rollback، security scanning (SAST/DAST/dependency/container).
 
 **نکات کلیدی:**
 
 - fail fast و cache برای feedback سریع.
-- security scanning را در pipeline بگنجانید (shift-left).
+- security scanning (shift-left).
 
 ---
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: چرا از commit SHA به‌جای `latest` برای image tag؟
+### سوال ۱: چرا commit SHA به‌جای `latest`؟
 
 **سطح:** Senior
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-tag `latest` متغیر و مبهم است: نمی‌دانید دقیقاً کدام کد در آن است، rollback سخت می‌شود، و دو محیط ممکن `latest` متفاوت داشته باشند (race در push). با tag کردن image با commit SHA (یا semantic version)، هر deploy دقیقاً به یک کد قابل‌ردیابی است؛ rollback یعنی deploy کردن SHA قبلی؛ و reproducibility تضمین می‌شود. همچنین K8s با `latest` ممکن image را re-pull نکند (cache) و نسخه‌ی قدیمی اجرا شود. best practice: SHA یا version صریح + `imagePullPolicy: IfNotPresent`.
+`latest` متغیر/مبهم: نمی‌دانید کدام کد، rollback سخت، race در push، و K8s ممکن re-pull نکند (نسخه‌ی قدیمی). با SHA هر deploy قابل‌ردیابی، rollback = deploy SHA قبلی. best practice: SHA/version + `imagePullPolicy: IfNotPresent`.
 
 **نکته مصاحبه:**
 
-Senior به traceability، rollback، و مشکل cache در K8s اشاره می‌کند.
+Senior به traceability، rollback، cache K8s اشاره می‌کند.
 
 ---
 
-### سوال ۲: چطور اسرار را در CI/CD امن نگه می‌داری؟
+### سوال ۲: اسرار را در CI/CD چطور امن نگه می‌داری؟
 
 **سطح:** Senior / Lead
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-اسرار را در secret store ابزار CI (GitLab CI/CD variables masked/protected، GitHub Secrets) نگه دارید، نه در کد یا فایل yaml. اصول: masked (در لاگ نمایش داده نشود)، protected (فقط روی branch محافظت‌شده)، و حداقل دسترسی. برای production، بهتر است CI فقط به یک secret manager (Vault) با short-lived token دسترسی داشته باشد نه نگه‌داری اسرار طولانی‌مدت. خطرات: لو رفتن secret در لاگ (با echo)، در pull request از fork (دسترسی محدود کنید)، و در artifactها. ابزار scanning برای جلوگیری از commit تصادفی secret.
+secret store ابزار (GitLab variables masked/protected، GitHub Secrets). masked (در لاگ نه)، protected (branch محافظت‌شده)، حداقل دسترسی. برای production بهتر CI به Vault با short-lived token. خطرات: echo در لاگ، PR از fork، artifact. scanning برای جلوگیری از commit.
 
 **نکته مصاحبه:**
 
-Lead به masked/protected، Vault، و خطر PR از fork اشاره می‌کند.
+Lead به masked/protected، Vault، PR از fork اشاره می‌کند.
 
 ---
 
-### سوال ۳: انواع security scanning در pipeline؟
+### سوال ۳: انواع security scanning؟
 
 **سطح:** Senior
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-- **SAST** (Static Application Security Testing): تحلیل source code برای آسیب‌پذیری (SonarQube، Checkmarx) — بدون اجرا.
-- **DAST** (Dynamic): تست برنامه‌ی در حال اجرا (OWASP ZAP).
-- **Dependency/SCA**: بررسی کتابخانه‌های third-party برای CVE شناخته‌شده (OWASP Dependency-Check، Snyk، Dependabot).
-- **Container scanning**: بررسی image برای vulnerability (Trivy، Grype).
-- **SBOM** (Software Bill of Materials): فهرست اجزا (CycloneDX، SPDX) برای traceability.
-
-فلسفه‌ی «shift-left»: امنیت را زود (در pipeline) چک کنید نه بعد از deploy. می‌توان pipeline را در صورت یافتن آسیب‌پذیری HIGH/CRITICAL fail کرد.
+**SAST** (source، SonarQube)، **DAST** (runtime، OWASP ZAP)، **SCA/Dependency** (CVE، Snyk، Dependabot)، **Container** (Trivy، Grype)، **SBOM** (CycloneDX). shift-left: زود در pipeline؛ fail بر HIGH/CRITICAL.
 
 **نکته مصاحبه:**
 
@@ -147,7 +166,7 @@ Senior انواع را تفکیک و shift-left را می‌فهمد.
 
 ## ⚠️ اشتباهات رایج
 
-### اشتباه ۱: استفاده از `latest` tag
+### اشتباه ۱: `latest` tag
 
 ```yaml
 # ❌
@@ -159,7 +178,7 @@ docker build -t myapp:latest .
 docker build -t myapp:$CI_COMMIT_SHA .
 ```
 
-**توضیح:** `latest` traceability و rollback را خراب می‌کند.
+**توضیح:** `latest` traceability/rollback را خراب می‌کند.
 
 ---
 
@@ -167,21 +186,21 @@ docker build -t myapp:$CI_COMMIT_SHA .
 
 ```yaml
 # ❌
-script: echo "deploying with $API_KEY"  # در لاگ فاش می‌شود
+script: echo "deploying with $API_KEY"
 ```
 
 ```yaml
-# ✅ masked variable، بدون echo
+# ✅ masked، بدون echo
 ```
 
-**توضیح:** echo کردن secret آن را در لاگ pipeline فاش می‌کند.
+**توضیح:** echo کردن secret آن را در لاگ فاش می‌کند.
 
 ---
 
-### اشتباه ۳: بدون cache dependency
+### اشتباه ۳: بدون cache
 
 ```yaml
-# ❌ هر build همه‌چیز را دوباره دانلود
+# ❌ هر build دانلود مجدد
 ```
 
 ```yaml
@@ -195,7 +214,7 @@ cache: { paths: [.m2/repository] }
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- CI/CD با **Docker (10.1)** و **Kubernetes (10.2)** deploy.
+- با **Docker (10.1)** و **Kubernetes (10.2)**.
 - security scanning با **DevSecOps (16.5)**.
-- GitOps با **ArgoCD (16.3)** به‌عنوان مدل deploy جایگزین.
-- testing در pipeline با **Testing (12.5)**.
+- GitOps با **ArgoCD (16.3)**.
+- testing با **Testing (12.5)**.

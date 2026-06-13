@@ -1,6 +1,49 @@
 # Docker — Images، Dockerfile، Compose، Networking
 
-> Docker پایه‌ی containerization مدرن است. multi-stage build و best practices برای Java مهم‌اند.
+> Docker پایه‌ی containerization مدرن است. multi-stage build و best practices برای Java مهم‌اند. این فایل با دیاگرام و مثال‌های متعدد گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Docker))
+    Concepts
+      Image/Container
+      Dockerfile/Registry
+      layers
+    Best Practices
+      multi-stage
+      non-root
+      layer caching
+    Compose
+      services/networks/volumes
+    Networking
+      bridge/host/overlay
+```
+
+---
+
+## Multi-stage Build
+
+```mermaid
+flowchart LR
+    subgraph Builder["مرحله build (JDK + Maven)"]
+        Src[source] --> Jar[app.jar]
+    end
+    subgraph Runtime["مرحله runtime (فقط JRE)"]
+        Jar --> Final[image کوچک]
+    end
+    Note["ابزار build در image نهایی نیست → کوچک‌تر و امن‌تر"]
+```
 
 ---
 
@@ -10,17 +53,12 @@
 
 **توضیح:**
 
-- **Image:** قالب read-only و لایه‌ای (layers) که برنامه و وابستگی‌ها را شامل می‌شود.
-- **Container:** نمونه‌ی در حال اجرای یک image (process ایزوله با namespace و cgroups).
-- **Dockerfile:** دستورالعمل ساخت image.
-- **Registry:** مخزن image (Docker Hub، GHCR، private).
-
-container برخلاف VM، kernel میزبان را share می‌کند پس سبک و سریع است. هر دستور Dockerfile یک layer می‌سازد که cache می‌شود.
+**Image** قالب read-only لایه‌ای. **Container** نمونه‌ی در حال اجرا (process ایزوله با namespace/cgroups). **Dockerfile** دستورالعمل. **Registry** مخزن. container kernel میزبان را share می‌کند (سبک). هر دستور یک layer (cache).
 
 **نکات کلیدی:**
 
 - container kernel را share می‌کند (سبک‌تر از VM).
-- layerها cache می‌شوند → ترتیب دستورات روی build speed اثر دارد.
+- layerها cache می‌شوند → ترتیب دستورات مهم.
 
 ---
 
@@ -28,38 +66,32 @@ container برخلاف VM، kernel میزبان را share می‌کند پس س
 
 **توضیح:**
 
-- **Multi-stage build:** مرحله‌ی build (با JDK + Maven) جدا از مرحله‌ی runtime (فقط JRE) → image نهایی کوچک‌تر و امن‌تر (بدون ابزار build).
-- **Non-root user:** اجرای container با کاربر غیرروت برای امنیت.
-- **Layer caching:** dependencyها را قبل از source code کپی کنید تا با تغییر کد، cache وابستگی‌ها حفظ شود.
-- **`.dockerignore`** برای حذف فایل‌های غیرضروری.
-- **base image کوچک:** Alpine یا distroless.
+multi-stage (build جدا از runtime)، non-root user، layer caching (dependency قبل از source)، `.dockerignore`، base کوچک (Alpine/distroless).
 
 **مثال کد:**
 
 ```dockerfile
-# مرحله build
 FROM eclipse-temurin:21-jdk-alpine AS builder
 WORKDIR /app
 COPY pom.xml .
-RUN mvn dependency:go-offline   # cache وابستگی‌ها (لایه‌ی جدا)
+RUN mvn dependency:go-offline   # cache وابستگی (لایه‌ی جدا)
 COPY src ./src
 RUN mvn package -DskipTests
 
-# مرحله runtime — image کوچک
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
 RUN addgroup -S app && adduser -S app -G app
-USER app                         # non-root
+USER app
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
 
 **نکات کلیدی:**
 
-- multi-stage → image کوچک (فقط JRE + jar).
-- copy کردن pom قبل از src برای cache وابستگی.
-- non-root user برای امنیت.
+- multi-stage → image کوچک.
+- copy pom قبل از src برای cache.
+- non-root برای امنیت.
 
 ---
 
@@ -67,7 +99,7 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 
 **توضیح:**
 
-**Compose** برای تعریف و اجرای چند container با هم (`services`, `networks`, `volumes`). `depends_on` + `healthcheck` برای ترتیب راه‌اندازی. named volume برای persistence. **Networking:** Bridge (پیش‌فرض، container روی یک شبکه)، Host، None، Overlay (برای چند host در Swarm/K8s). در یک شبکه، containerها با **service name** به‌عنوان hostname همدیگر را پیدا می‌کنند (DNS داخلی).
+Compose برای چند container (`services`, `networks`, `volumes`). `depends_on` + `healthcheck`. named volume برای persistence. Networking: Bridge (پیش‌فرض)، Host، Overlay. service name به‌عنوان hostname (DNS).
 
 **مثال کد:**
 
@@ -76,15 +108,11 @@ services:
   app:
     build: .
     ports: ["8080:8080"]
-    depends_on:
-      db: { condition: service_healthy }
-    environment:
-      DB_URL: jdbc:postgresql://db:5432/mydb  # db = service name
+    depends_on: { db: { condition: service_healthy } }
+    environment: { DB_URL: jdbc:postgresql://db:5432/mydb } # db = service name
   db:
     image: postgres:17
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s }
     volumes: ["pgdata:/var/lib/postgresql/data"]
 volumes:
   pgdata:
@@ -92,9 +120,9 @@ volumes:
 
 **نکات کلیدی:**
 
-- service name به‌عنوان hostname (DNS داخلی).
-- healthcheck + depends_on برای ترتیب درست راه‌اندازی.
-- named volume برای persistence داده.
+- service name به‌عنوان hostname.
+- healthcheck + depends_on برای ترتیب.
+- named volume برای persistence.
 
 ---
 
@@ -107,22 +135,22 @@ volumes:
 
 **جواب کامل:**
 
-multi-stage build اجازه می‌دهد از چند `FROM` در یک Dockerfile استفاده کنید: یک مرحله برای build (با JDK، Maven، ابزارها) و مرحله‌ی نهایی فقط نتیجه (jar) را از مرحله‌ی build کپی می‌کند روی یک base کوچک (JRE یا distroless). مزایا: (۱) **image کوچک‌تر** — ابزارهای build (که صدها مگابایت‌اند) در image نهایی نیستند. (۲) **امنیت** — کمتر بودن چیزها = attack surface کمتر (بدون compiler، shell، ابزار). (۳) **سرعت deploy** — image کوچک سریع‌تر pull/push می‌شود. این یک best practice استاندارد برای Java است که image را از ~۷۰۰MB به ~۲۰۰MB یا کمتر می‌رساند.
+چند `FROM`: build (JDK/Maven) و نهایی فقط jar روی base کوچک. مزایا: (۱) image کوچک‌تر (بدون ابزار build). (۲) امنیت (attack surface کمتر). (۳) deploy سریع‌تر. image را از ~۷۰۰MB به ~۲۰۰MB می‌رساند.
 
 **نکته مصاحبه:**
 
-Senior به کاهش attack surface و اندازه اشاره می‌کند. Follow-up: «distroless چیست؟» (image بدون OS/shell، فقط runtime — امن‌تر).
+Senior به attack surface اشاره می‌کند. Follow-up: «distroless؟»
 
 ---
 
-### سوال ۲: چطور layer caching را در Dockerfile بهینه می‌کنی؟
+### سوال ۲: layer caching را چطور بهینه می‌کنی؟
 
 **سطح:** Senior
 **تکرار:** زیاد
 
 **جواب کامل:**
 
-Docker هر دستور را یک layer می‌سازد و cache می‌کند؛ اگر یک layer تغییر کند، همه‌ی layerهای بعد از آن دوباره build می‌شوند. کلید بهینه‌سازی: چیزهایی که **کمتر تغییر می‌کنند** را زودتر بگذارید. برای Java/Maven: ابتدا `pom.xml` را کپی و `mvn dependency:go-offline` بزنید (این layer فقط با تغییر dependency invalidate می‌شود)، سپس `src` را کپی کنید. چون source code مکرر تغییر می‌کند اما dependencyها به‌ندرت، با این ترتیب هر build کد، از cache وابستگی‌ها استفاده می‌کند و فقط compile دوباره انجام می‌شود — build بسیار سریع‌تر. اگر pom و src را با هم کپی کنید، هر تغییر کد کل دانلود وابستگی را دوباره اجرا می‌کند.
+هر دستور یک layer (cache)؛ تغییر یک layer → rebuild بعدی‌ها. چیزهای کم‌تغییر را زودتر. برای Java: pom + `mvn dependency:go-offline` اول (فقط با تغییر dependency invalidate)، سپس src. اگر با هم کپی کنید، هر تغییر کد دانلود وابستگی را دوباره اجرا می‌کند.
 
 **نکته مصاحبه:**
 
@@ -137,20 +165,20 @@ Senior ترتیب «کم‌تغییر زودتر» را توضیح می‌دهد
 
 **جواب کامل:**
 
-VM یک kernel و OS کامل مجزا روی hypervisor دارد — ایزولاسیون قوی اما سنگین (گیگابایت، startup کند). container kernel میزبان را share می‌کند و فقط process را با namespace (ایزولاسیون دید) و cgroups (محدودیت منابع) ایزوله می‌کند — سبک (مگابایت)، startup سریع (ثانیه)، چگالی بالا. trade-off: container ایزولاسیون ضعیف‌تری از VM دارد (kernel مشترک = سطح حمله مشترک)، پس برای multi-tenancy با امنیت سخت‌گیرانه گاهی VM یا microVM (Firecracker) استفاده می‌شود. برای اکثر کاربردها container کافی و کارآمدتر است.
+VM kernel/OS کامل مجزا (ایزولاسیون قوی، سنگین). container kernel میزبان را share و فقط process را با namespace/cgroups ایزوله (سبک، startup سریع). trade-off: ایزولاسیون ضعیف‌تر (kernel مشترک)؛ برای multi-tenancy سخت‌گیرانه VM/microVM (Firecracker).
 
 **نکته مصاحبه:**
 
-Senior به kernel مشترک و trade-off ایزولاسیون اشاره می‌کند.
+Senior به kernel مشترک اشاره می‌کند.
 
 ---
 
 ## ⚠️ اشتباهات رایج
 
-### اشتباه ۱: اجرای container به‌عنوان root
+### اشتباه ۱: container روت
 
 ```dockerfile
-# ❌ بدون USER → root
+# ❌
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
 
@@ -159,20 +187,19 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 RUN adduser -S app && USER app
 ```
 
-**توضیح:** container روت = خطر امنیتی (escape به host).
+**توضیح:** روت = خطر escape به host.
 
 ---
 
-### اشتباه ۲: کپی همه‌چیز قبل از build
+### اشتباه ۲: کپی همه قبل از build
 
 ```dockerfile
-# ❌ هر تغییر کد، دانلود مجدد وابستگی
-COPY . .
-RUN mvn package
+# ❌
+COPY . . && RUN mvn package
 ```
 
 ```dockerfile
-# ✅ pom اول
+# ✅
 COPY pom.xml . && RUN mvn dependency:go-offline
 COPY src ./src && RUN mvn package
 ```
@@ -181,15 +208,15 @@ COPY src ./src && RUN mvn package
 
 ---
 
-### اشتباه ۳: image بزرگ (full JDK + ابزار)
+### اشتباه ۳: image بزرگ
 
 ```dockerfile
-# ❌ image نهایی شامل JDK و Maven
+# ❌
 FROM maven:3-eclipse-temurin-21
 ```
 
 ```dockerfile
-# ✅ multi-stage با JRE نهایی
+# ✅ multi-stage با JRE
 ```
 
 **توضیح:** image بزرگ = pull کند و attack surface زیاد.
@@ -198,7 +225,7 @@ FROM maven:3-eclipse-temurin-21
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- Docker پایه‌ی **Kubernetes (10.2)** و **CI/CD (10.3)**.
-- non-root و scanning با **DevSecOps (16.5)**.
-- jlink (Java module) برای image کوچک‌تر با **Java Modules (1.3)**.
-- Compose با **local development** و **Testcontainers (12.5)**.
+- پایه‌ی **Kubernetes (10.2)** و **CI/CD (10.3)**.
+- non-root/scanning با **DevSecOps (16.5)**.
+- jlink با **Java Modules (1.3)**.
+- Compose با **Testcontainers (12.5)**.
