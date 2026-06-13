@@ -1,6 +1,37 @@
 # مبانی امنیت — OWASP Top 10، Injection، XSS، CSRF، Secrets
 
-> امنیت مسئولیت هر مهندس است. OWASP Top 10 و defense in depth در مصاحبه‌های Senior پرسیده می‌شوند.
+> امنیت مسئولیت هر مهندس است. OWASP Top 10 و defense in depth در مصاحبه‌های Senior پرسیده می‌شوند. این فایل با دیاگرام و مثال‌های متعدد گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Security Fundamentals))
+    OWASP Top 10
+      Injection
+      Broken Auth
+      XSS
+      IDOR
+      SSRF
+    SQL Injection
+      PreparedStatement
+    XSS
+      output encoding
+      CSP
+    CSRF/CORS
+    Secrets
+      Vault
+      env vars
+```
 
 ---
 
@@ -10,16 +41,18 @@
 
 **توضیح:**
 
-فهرست رایج‌ترین آسیب‌پذیری‌های وب: Injection (SQL، command)، Broken Authentication، XSS، Broken Access Control (IDOR)، Security Misconfiguration، SSRF، Cryptographic Failures، Vulnerable Components، Insufficient Logging. هر کدام یک کلاس از حملات است که مهندس باید بشناسد و دفاع کند.
+رایج‌ترین آسیب‌پذیری‌ها: Injection، Broken Authentication، XSS، Broken Access Control (IDOR)، Security Misconfiguration، SSRF، Cryptographic Failures، Vulnerable Components، Insufficient Logging.
 
-**چرا مهم است:**
-
-این‌ها پرتکرارترین علل نفوذ واقعی‌اند. آگاهی از آن‌ها اولین خط دفاع است.
+```mermaid
+flowchart LR
+    Input[ورودی کاربر] -->|never trust| Validate[validate + sanitize]
+    Validate --> Layers[defense in depth: چند لایه]
+```
 
 **نکات کلیدی:**
 
-- defense in depth: چند لایه دفاع، نه یک نقطه.
-- never trust user input — همیشه validate و sanitize.
+- defense in depth: چند لایه، نه یک نقطه.
+- never trust user input.
 
 ---
 
@@ -27,28 +60,27 @@
 
 **توضیح:**
 
-حمله‌ای که در آن مهاجم ورودی مخرب را به query تزریق می‌کند تا منطق SQL را تغییر دهد (مثلاً `' OR '1'='1`). علت ریشه‌ای: ساختن query با الحاق رشته‌ی ورودی کاربر. راه‌حل قطعی: **PreparedStatement / parameterized query** که داده را از کد SQL جدا می‌کند؛ ورودی هرگز به‌عنوان کد تفسیر نمی‌شود. در JPA از parameter binding (`:param`) استفاده کنید، هرگز concatenation.
+تزریق ورودی مخرب برای تغییر منطق SQL (`' OR '1'='1`). علت: concatenation. راه‌حل قطعی: **PreparedStatement / parameterized query**.
 
 **مثال کد:**
 
 ```java
-// ❌ آسیب‌پذیر به SQL injection
+// ❌ آسیب‌پذیر
 String sql = "SELECT * FROM users WHERE email = '" + email + "'";
 
-// ✅ PreparedStatement (parameterized)
-PreparedStatement ps = conn.prepareStatement(
-    "SELECT * FROM users WHERE email = ?");
-ps.setString(1, email); // داده جدا از کد
+// ✅ parameterized
+PreparedStatement ps = conn.prepareStatement("SELECT * FROM users WHERE email = ?");
+ps.setString(1, email);
 
-// ✅ در JPA
+// ✅ JPA
 @Query("SELECT u FROM User u WHERE u.email = :email")
 Optional<User> findByEmail(@Param("email") String email);
 ```
 
 **نکات کلیدی:**
 
-- همیشه parameterized query؛ هرگز string concatenation با ورودی.
-- ORM/JPA به‌صورت پیش‌فرض امن است مگر native query با concatenation بنویسید.
+- همیشه parameterized؛ هرگز concatenation.
+- ORM/JPA پیش‌فرض امن مگر native با concatenation.
 
 ---
 
@@ -56,13 +88,13 @@ Optional<User> findByEmail(@Param("email") String email);
 
 **توضیح:**
 
-تزریق اسکریپت مخرب در صفحه که در مرورگر قربانی اجرا می‌شود (مثلاً سرقت cookie). انواع: Stored، Reflected، DOM-based. دفاع: **output encoding** (escape کردن داده هنگام نمایش بر اساس context — HTML، JS، URL)، **Content Security Policy (CSP)** header (محدود کردن منابع اسکریپت)، و sanitize کردن HTML ورودی. fram‌ورک‌های مدرن (React) به‌صورت پیش‌فرض escape می‌کنند.
+تزریق اسکریپت مخرب در صفحه که در مرورگر قربانی اجرا می‌شود. انواع: Stored، Reflected، DOM-based. دفاع: **output encoding** (بر اساس context)، **CSP** header، sanitize.
 
 **نکات کلیدی:**
 
-- output encoding بر اساس context (نه فقط ورودی).
-- CSP header به‌عنوان لایه‌ی دوم دفاع.
-- `innerHTML` و `dangerouslySetInnerHTML` خطرناک‌اند.
+- output encoding بر اساس context.
+- CSP لایه‌ی دوم.
+- `innerHTML`/`dangerouslySetInnerHTML` خطرناک.
 
 ---
 
@@ -70,12 +102,17 @@ Optional<User> findByEmail(@Param("email") String email);
 
 **توضیح:**
 
-**CSRF:** سوءاستفاده از session cookie کاربر برای ارسال request جعلی. دفاع: CSRF token، SameSite cookie. فقط برای cookie-based auth relevant است (نه JWT در header). **CORS:** مکانیزم مرورگر برای کنترل اینکه کدام origin می‌تواند به API دسترسی داشته باشد. باید با دقت تنظیم شود؛ `Access-Control-Allow-Origin: *` با credentials خطرناک است.
+**CSRF:** سوءاستفاده از session cookie برای request جعلی. دفاع: CSRF token، SameSite. فقط برای cookie-based auth. **CORS:** کنترل origin مجاز؛ `*` با credentials خطرناک.
+
+```mermaid
+flowchart LR
+    Attacker[سایت مخرب] -->|request جعلی با cookie کاربر| Server
+    Server -->|CSRF token/SameSite| Block[مسدود]
+```
 
 **مثال کد:**
 
 ```java
-// CORS امن در Spring Security
 @Bean
 CorsConfigurationSource corsConfig() {
     CorsConfiguration config = new CorsConfiguration();
@@ -99,12 +136,12 @@ CorsConfigurationSource corsConfig() {
 
 **توضیح:**
 
-**Security Headers:** HSTS (اجبار HTTPS)، X-Frame-Options (جلوگیری clickjacking)، X-Content-Type-Options (nosniff)، CSP. **Secrets Management:** هرگز رمز/کلید/token را در کد یا repo hardcode نکنید؛ از environment variable، Vault، یا cloud secret manager استفاده کنید. اسرار در Git یکی از رایج‌ترین نشت‌هاست (حتی اگر بعداً حذف شوند، در history می‌مانند).
+**Headers:** HSTS، X-Frame-Options، X-Content-Type-Options، CSP. **Secrets:** هرگز hardcode؛ environment/Vault/cloud secret manager. اسرار در Git history برای همیشه می‌مانند.
 
 **نکات کلیدی:**
 
-- اسرار را در environment/Vault نگه دارید، نه در کد.
-- security headers لایه‌ی دفاعی ارزان و مؤثر.
+- اسرار در environment/Vault.
+- security headers لایه‌ی ارزان و مؤثر.
 
 ---
 
@@ -117,49 +154,49 @@ CorsConfigurationSource corsConfig() {
 
 **جواب کامل:**
 
-راه قطعی **parameterized query / PreparedStatement** است که داده‌ی ورودی را از ساختار SQL جدا می‌کند؛ دیتابیس ورودی را همیشه به‌عنوان مقدار (نه کد) تفسیر می‌کند، حتی اگر شامل `'` یا `OR 1=1` باشد. ORMها (JPA/Hibernate) به‌صورت پیش‌فرض از binding استفاده می‌کنند پس امن‌اند — مگر اینکه native query با string concatenation بنویسید یا از `@Query` با concatenation استفاده کنید. لایه‌های اضافی: validation ورودی (whitelist)، least privilege برای DB user، و اجتناب از dynamic SQL. اما خط دفاع اصلی parameterization است؛ escape دستی خطاپذیر است و کافی نیست.
+**parameterized query / PreparedStatement** که داده را از ساختار SQL جدا می‌کند. ORMها پیش‌فرض امن مگر native با concatenation. لایه‌های اضافی: validation (whitelist)، least privilege DB user. escape دستی کافی نیست.
 
 **نکته مصاحبه:**
 
-تمایز Senior: اشاره به اینکه escape دستی کافی نیست و parameterization راه اصلی است. Follow-up: «ORDER BY پویا با parameter ممکن نیست؛ چطور امن می‌کنی؟» (whitelist نام ستون‌ها).
+تمایز Senior: escape کافی نیست. Follow-up: «ORDER BY پویا؟» (whitelist نام ستون).
 
 ---
 
-### سوال ۲: تفاوت XSS و CSRF چیست؟
+### سوال ۲: تفاوت XSS و CSRF؟
 
 **سطح:** Senior
 **تکرار:** زیاد
 
 **جواب کامل:**
 
-XSS تزریق و اجرای **کد مخرب در مرورگر قربانی** است؛ مهاجم اسکریپت را وارد صفحه می‌کند و در context کاربر اجرا می‌شود (سرقت token، تغییر صفحه). دفاع: output encoding و CSP. CSRF کاربر را وادار به ارسال **request ناخواسته** به سایتی که در آن authenticated است می‌کند، با سوءاستفاده از ارسال خودکار cookie توسط مرورگر؛ مهاجم کد اجرا نمی‌کند بلکه از session موجود سوءاستفاده می‌کند. دفاع: CSRF token و SameSite cookie. تفاوت کلیدی: XSS مشکل اعتماد به محتوا (اجرای کد)، CSRF مشکل اعتماد به منشأ request (هویت). نکته‌ی مهم: XSS می‌تواند هر دفاع CSRF را دور بزند، پس XSS جدی‌تر است.
+XSS اجرای **کد مخرب در مرورگر** (سرقت token)؛ دفاع: output encoding، CSP. CSRF **request ناخواسته** با سوءاستفاده از cookie؛ دفاع: CSRF token، SameSite. XSS اعتماد به محتوا، CSRF اعتماد به منشأ. نکته: XSS می‌تواند CSRF protection را دور بزند.
 
 **نکته مصاحبه:**
 
-تمایز Senior: «XSS می‌تواند CSRF protection را دور بزند». 
+تمایز Senior: «XSS می‌تواند CSRF را دور بزند».
 
 ---
 
-### سوال ۳: IDOR چیست و چطور جلوگیری می‌شود؟
+### سوال ۳: IDOR چیست و چطور جلوگیری؟
 
 **سطح:** Senior
 **تکرار:** زیاد
 
 **جواب کامل:**
 
-IDOR (Insecure Direct Object Reference) یک نوع Broken Access Control است: کاربر با تغییر یک شناسه در request به منبع دیگران دسترسی می‌یابد. مثلاً `/api/orders/123` که کاربر `123` را به `124` تغییر می‌دهد و سفارش کاربر دیگری را می‌بیند، چون سرور فقط authentication را چک کرده نه authorization (مالکیت). راه‌حل: همیشه در سطح سرور بررسی کنید که کاربر جاری مجاز به دسترسی به آن منبع خاص است (مثلاً `order.userId == currentUser.id`)، نه فقط اینکه login کرده. هرگز به obscurity شناسه تکیه نکنید (UUID به‌جای incremental کمک می‌کند اما کافی نیست).
+Insecure Direct Object Reference: تغییر شناسه برای دسترسی به منبع دیگران (`/orders/123` → `124`). علت: چک authentication بدون authorization (مالکیت). راه‌حل: بررسی مالکیت در سرور (`order.userId == currentUser.id`)، نه فقط login. UUID کمک می‌کند اما کافی نیست.
 
 **کد توضیحی:**
 
 ```java
 @PreAuthorize("@orderService.isOwner(#id, authentication.name)")
 @GetMapping("/orders/{id}")
-public Order get(@PathVariable Long id) { /* ... */ }
+public Order get(@PathVariable Long id) { return null; }
 ```
 
 **نکته مصاحبه:**
 
-Senior به «authentication ≠ authorization» و بررسی مالکیت اشاره می‌کند.
+Senior به «authentication ≠ authorization» اشاره می‌کند.
 
 ---
 
@@ -170,29 +207,29 @@ Senior به «authentication ≠ authorization» و بررسی مالکیت اش
 
 **جواب کامل:**
 
-هرگز در کد یا repo (حتی فایل config commit‌شده) hardcode نکنید — اسرار در Git history برای همیشه می‌مانند حتی اگر حذف شوند. روش‌ها به ترتیب بلوغ: environment variables (پایه، برای 12-factor)، secret manager (HashiCorp Vault، AWS Secrets Manager، Azure Key Vault) که rotation، audit و access control می‌دهد، و در K8s، External Secrets Operator یا Sealed Secrets. اصول: least privilege، rotation منظم، audit دسترسی، و رمزنگاری at-rest. اگر secret لو رفت، فوراً rotate کنید. ابزارهای scanning (git-secrets، trufflehog) برای جلوگیری از commit تصادفی.
+هرگز hardcode (Git history می‌ماند). environment variables → secret manager (Vault، AWS Secrets Manager) با rotation/audit → در K8s External Secrets/Sealed Secrets. اصول: least privilege، rotation، audit، رمزنگاری at-rest. ابزار scanning (trufflehog) برای جلوگیری از commit.
 
 **نکته مصاحبه:**
 
-Lead به rotation، Vault، و خطر Git history اشاره می‌کند.
+Lead به rotation، Vault، Git history اشاره می‌کند.
 
 ---
 
 ## ⚠️ اشتباهات رایج
 
-### اشتباه ۱: string concatenation در query
+### اشتباه ۱: concatenation در query
 
 ```java
-// ❌ SQL injection
+// ❌
 "SELECT * FROM users WHERE name = '" + name + "'"
 ```
 
 ```java
-// ✅ parameterized
-"SELECT * FROM users WHERE name = ?" // + setString
+// ✅
+"SELECT * FROM users WHERE name = ?"
 ```
 
-**توضیح:** الحاق ورودی به query کلاسیک‌ترین آسیب‌پذیری است.
+**توضیح:** الحاق ورودی کلاسیک‌ترین آسیب‌پذیری است.
 
 ---
 
@@ -200,20 +237,19 @@ Lead به rotation، Vault، و خطر Git history اشاره می‌کند.
 
 ```java
 // ❌
-config.setAllowedOrigins(List.of("*"));
-config.setAllowCredentials(true); // ترکیب خطرناک
+config.setAllowedOrigins(List.of("*")); config.setAllowCredentials(true);
 ```
 
 ```java
-// ✅ origin مشخص
+// ✅
 config.setAllowedOrigins(List.of("https://app.example.com"));
 ```
 
-**توضیح:** `*` با credentials اجازه‌ی دسترسی هر سایت با cookie کاربر می‌دهد.
+**توضیح:** `*` با credentials اجازه‌ی دسترسی هر سایت با cookie می‌دهد.
 
 ---
 
-### اشتباه ۳: hardcode کردن secret
+### اشتباه ۳: hardcode secret
 
 ```java
 // ❌
@@ -225,29 +261,28 @@ String apiKey = "sk-live-abc123";
 String apiKey = System.getenv("API_KEY");
 ```
 
-**توضیح:** secret در کد = نشت دائمی در repo.
+**توضیح:** secret در کد = نشت دائمی.
 
 ---
 
-### اشتباه ۴: تکیه بر authentication بدون authorization
+### اشتباه ۴: authentication بدون authorization
 
 ```java
-// ❌ فقط چک login، نه مالکیت → IDOR
-@GetMapping("/orders/{id}")
-Order get(@PathVariable Long id) { return repo.findById(id).get(); }
+// ❌ IDOR
+@GetMapping("/orders/{id}") Order get(@PathVariable Long id) { return repo.findById(id).get(); }
 ```
 
 ```java
 // ✅ بررسی مالکیت
 ```
 
-**توضیح:** login بودن کافی نیست؛ دسترسی به منبع خاص باید چک شود.
+**توضیح:** login بودن کافی نیست.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- این مفاهیم با **Spring Security (2.5)** و **OAuth/JWT (7.2)** عمیق مرتبط است.
-- secrets management با **Vault (16.5)** و **K8s Secrets (10.2)**.
+- با **Spring Security (2.5)** و **OAuth/JWT (7.2)**.
+- secrets با **Vault (16.5)** و **K8s Secrets (10.2)**.
 - SQL injection با **PreparedStatement** و **Spring Data**.
-- security scanning با **DevSecOps (16.5)** و **CI/CD**.
+- scanning با **DevSecOps (16.5)**.
