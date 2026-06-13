@@ -1,6 +1,28 @@
 # Elasticsearch — CRUD و Search
 
-> Query DSL قلب جستجو در ES است. درک bool query و تفاوت query/filter context مهم است.
+> Query DSL قلب جستجو در ES است. درک bool query و تفاوت query/filter context مهم است. این فایل با دیاگرام گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((ES CRUD/Search))
+    bool query
+      must/should/filter/must_not
+    query vs filter context
+      score vs cacheable
+    relevance BM25
+    aggregation
+```
 
 ---
 
@@ -10,7 +32,7 @@
 
 **توضیح:**
 
-index کردن document با `PUT /index/_doc/id`. جستجو با Query DSL (JSON). **bool query** ترکیب شرط‌ها: `must` (AND، روی score اثر دارد)، `should` (OR، score boost)، `must_not` (NOT)، `filter` (AND، بدون score، cacheable). تفاوت کلیدی **query context** (relevance score محاسبه می‌شود) در برابر **filter context** (فقط yes/no، سریع‌تر و cache می‌شود).
+index با `PUT`. **bool query**: `must` (AND، score)، `should` (OR، boost)، `must_not` (NOT)، `filter` (AND، بدون score، cacheable). **query context** (relevance) در برابر **filter context** (yes/no، cache).
 
 **مثال کد:**
 
@@ -19,23 +41,20 @@ GET /products/_search
 {
   "query": {
     "bool": {
-      "must": [{ "match": { "name": "iphone" } }],       // relevance
-      "filter": [{ "range": { "price": { "gte": 500, "lte": 2000 } } }], // بدون score، cache
+      "must": [{ "match": { "name": "iphone" } }],
+      "filter": [{ "range": { "price": { "gte": 500, "lte": 2000 } } }],
       "must_not": [{ "term": { "discontinued": true } }]
     }
   },
-  "aggs": {
-    "by_category": { "terms": { "field": "category.keyword" } },
-    "avg_price": { "avg": { "field": "price" } }
-  }
+  "aggs": { "by_category": { "terms": { "field": "category.keyword" } } }
 }
 ```
 
 **نکات کلیدی:**
 
-- شرط‌های exact/range را در `filter` بگذارید (cacheable، سریع‌تر، بدون score).
-- `must` برای full-text که relevance مهم است.
-- aggregation روی keyword (نه text).
+- شرط‌های exact/range را در `filter` (cacheable، سریع).
+- `must` برای full-text با relevance.
+- aggregation روی keyword.
 
 ---
 
@@ -48,11 +67,11 @@ GET /products/_search
 
 **جواب کامل:**
 
-در **query context** (مثل `must`, `should`)، ES علاوه بر تطابق، یک **relevance score** (`_score`) محاسبه می‌کند که چقدر document با query مرتبط است — برای full-text که می‌خواهید مرتبط‌ترین‌ها بالا باشند. در **filter context** (مثل `filter`, `must_not`)، فقط yes/no مطرح است (آیا match می‌کند) بدون محاسبه‌ی score — سریع‌تر و **cacheable** (ES نتیجه‌ی filter را cache می‌کند). best practice: شرط‌های exact/range/boolean (مثل price range، status، date) را در filter context بگذارید (سریع‌تر، cache)، و فقط full-text relevance را در query context. این performance را به‌شدت بهبود می‌دهد.
+query context (`must`/`should`): **relevance score** محاسبه می‌شود (full-text). filter context (`filter`/`must_not`): فقط yes/no، بدون score، **cacheable**. best practice: exact/range/boolean در filter (سریع، cache)، full-text در query. performance را بهبود می‌دهد.
 
 **نکته مصاحبه:**
 
-Senior به cacheable بودن filter و قرار دادن range/exact در filter اشاره می‌کند.
+Senior به cacheable بودن filter اشاره می‌کند.
 
 ---
 
@@ -63,7 +82,7 @@ Senior به cacheable بودن filter و قرار دادن range/exact در filt
 
 **جواب کامل:**
 
-ES از الگوریتم **BM25** (پیش‌فرض، بهبود TF-IDF) برای score استفاده می‌کند. عوامل اصلی: **TF** (term frequency — هرچه term بیشتر در document، مرتبط‌تر، اما با saturation)، **IDF** (inverse document frequency — term نادر در کل index ارزش بیشتری دارد)، و **field length normalization** (term در فیلد کوتاه مرتبط‌تر از فیلد بلند). می‌توان score را با `boost`، `function_score`، یا rescoring تنظیم کرد. درک scoring برای tuning نتایج جستجو (مثلاً اولویت title بر body) لازم است. برای exact/filter که relevance مهم نیست، filter context استفاده کنید تا score محاسبه نشود.
+**BM25** (پیش‌فرض، بهبود TF-IDF). عوامل: TF (term frequency با saturation)، IDF (term نادر ارزش بیشتر)، field length normalization. tuning با `boost`/`function_score`. برای exact از filter context (بدون score).
 
 **نکته مصاحبه:**
 
@@ -73,10 +92,10 @@ Senior BM25 و TF/IDF را می‌شناسد.
 
 ## ⚠️ اشتباهات رایج
 
-### اشتباه ۱: range/exact در must به‌جای filter
+### اشتباه ۱: range/exact در must
 
 ```json
-// ❌ score بی‌فایده محاسبه می‌شود، بدون cache
+// ❌
 "must": [{ "range": { "price": { "gte": 100 } } }]
 ```
 
@@ -85,15 +104,15 @@ Senior BM25 و TF/IDF را می‌شناسد.
 "filter": [{ "range": { "price": { "gte": 100 } } }]
 ```
 
-**توضیح:** range/exact در filter سریع‌تر و cacheable است.
+**توضیح:** range/exact در filter سریع‌تر و cacheable.
 
 ---
 
-### اشتباه ۲: aggregation روی فیلد text
+### اشتباه ۲: aggregation روی text
 
 ```json
-// ❌ خطا یا fielddata گران
-"terms": { "field": "category" }  // text
+// ❌
+"terms": { "field": "category" }
 ```
 
 ```json
@@ -101,12 +120,12 @@ Senior BM25 و TF/IDF را می‌شناسد.
 "terms": { "field": "category.keyword" }
 ```
 
-**توضیح:** aggregation/sort روی keyword نه text.
+**توضیح:** aggregation روی keyword.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
-- Query DSL با **Spring Data Elasticsearch (17.3)**.
+- با **Spring Data Elasticsearch (17.3)**.
 - filter cache با **caching (9)**.
-- aggregation با **MongoDB aggregation (4.2)** (مقایسه).
+- aggregation با **MongoDB aggregation (4.2)**.

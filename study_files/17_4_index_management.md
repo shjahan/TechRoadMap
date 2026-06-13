@@ -1,6 +1,40 @@
 # Elasticsearch — Index Management (ILM، Alias، Reindex)
 
-> مدیریت چرخه‌ی حیات index برای production: ILM، alias برای zero-downtime، و reindex.
+> مدیریت چرخه‌ی حیات index برای production: ILM، alias برای zero-downtime، و reindex. این فایل با دیاگرام گسترش یافته.
+
+## فهرست
+- [نقشه‌ی ذهنی](#نقشه‌ی-ذهنی)
+- [📖 مفاهیم](#-مفاهیم)
+- [🎯 سوالات مصاحبه](#-سوالات-مصاحبه)
+- [⚠️ اشتباهات رایج](#️-اشتباهات-رایج)
+- [🔗 ارتباط با سایر مفاهیم](#-ارتباط-با-سایر-مفاهیم)
+
+---
+
+## نقشه‌ی ذهنی
+
+```mermaid
+mindmap
+  root((Index Management))
+    Mapping/Analyzer
+    ILM
+      hot/warm/cold/delete
+    Alias
+      zero-downtime reindex
+    Reindex API
+```
+
+---
+
+## Zero-downtime reindex با Alias
+
+```mermaid
+flowchart LR
+    App -->|می‌خواند از| Alias[alias]
+    Alias -.-> Old[(index قدیمی)]
+    Old -->|Reindex API| New[(index جدید mapping صحیح)]
+    Alias ==>|atomic switch| New
+```
 
 ---
 
@@ -10,7 +44,7 @@
 
 **توضیح:**
 
-هنگام ساخت index، settings (تعداد shard/replica، analyzer سفارشی) و mapping (نوع فیلدها) تعریف می‌شود. analyzer سفارشی برای زبان‌های خاص (مثل فارسی با normalization).
+settings (shard/replica، analyzer سفارشی) و mapping (نوع فیلد). analyzer سفارشی برای زبان (فارسی با normalization).
 
 **مثال کد:**
 
@@ -18,25 +52,17 @@
 PUT /articles
 {
   "settings": {
-    "number_of_shards": 3,
-    "number_of_replicas": 1,
-    "analysis": {
-      "analyzer": {
-        "persian_custom": {
-          "type": "custom",
-          "tokenizer": "standard",
-          "filter": ["lowercase", "persian_normalization"]
-        }
-      }
-    }
+    "number_of_shards": 3, "number_of_replicas": 1,
+    "analysis": { "analyzer": { "persian_custom": { "type": "custom",
+      "tokenizer": "standard", "filter": ["lowercase", "persian_normalization"] } } }
   }
 }
 ```
 
 **نکات کلیدی:**
 
-- تعداد shard بعد از ساخت قابل‌تغییر نیست (با دقت انتخاب کنید).
-- analyzer روی نحوه‌ی index و search اثر می‌گذارد.
+- تعداد shard بعد از ساخت قابل‌تغییر نیست.
+- analyzer روی index/search اثر می‌گذارد.
 
 ---
 
@@ -44,76 +70,73 @@ PUT /articles
 
 **توضیح:**
 
-- **ILM (Index Lifecycle Management):** چرخه‌ی hot → warm → cold → delete برای داده‌ی time-series (مثل logها). داده‌ی قدیمی به storage ارزان‌تر منتقل و نهایتاً حذف می‌شود.
-- **Index Template:** policy برای indexهای جدید (نام‌گذاری الگو، settings).
-- **Alias:** یک نام مجازی که به یک یا چند index اشاره می‌کند — برای **zero-downtime reindex** (تغییر mapping با ساخت index جدید و switch atomic alias).
-- **Reindex API:** کپی داده بین indexها (برای تغییر mapping/migration).
+**ILM**: hot → warm → cold → delete (time-series/log). **Index Template**. **Alias**: zero-downtime reindex (switch atomic). **Reindex API**: کپی بین indexها.
 
 **نکات کلیدی:**
 
-- alias برای zero-downtime reindex (switch بدون downtime).
-- ILM برای مدیریت خودکار logهای time-series.
+- alias برای zero-downtime reindex.
+- ILM برای logهای time-series.
 
 ---
 
 ## 🎯 سوالات مصاحبه
 
-### سوال ۱: چطور mapping یک index موجود را بدون downtime تغییر می‌دهی؟
+### سوال ۱: mapping را بدون downtime چطور تغییر می‌دهی؟
 
 **سطح:** Senior / Lead
 **تکرار:** متوسط
 
 **جواب کامل:**
 
-mapping برخی فیلدها بعد از ساخت قابل‌تغییر نیست (مثل تغییر type). راه‌حل zero-downtime با **alias + reindex**: (۱) index جدید با mapping درست بسازید. (۲) داده را با **Reindex API** از index قدیمی به جدید کپی کنید (می‌توان همزمان write جدید را به هر دو فرستاد یا از alias استفاده کرد). (۳) با **alias** (که اپ همیشه از آن می‌خواند به‌جای نام مستقیم index)، به‌صورت **atomic** alias را از index قدیمی به جدید switch کنید — یک عملیات اتمیک که downtime صفر می‌دهد. (۴) index قدیمی را حذف کنید. کلید: اپ از ابتدا باید با alias کار کند نه نام مستقیم index، تا این switch ممکن باشد.
+برخی mapping بعد از ساخت تغییرناپذیر. **alias + reindex**: (۱) index جدید با mapping درست. (۲) Reindex API. (۳) با **alias** (اپ از آن می‌خواند) به‌صورت **atomic** switch. (۴) حذف قدیمی. کلید: اپ از ابتدا با alias کار کند.
 
 **نکته مصاحبه:**
 
-Senior به alias atomic switch و reindex اشاره می‌کند.
+Senior به alias atomic switch اشاره می‌کند.
 
 ---
 
-### سوال ۲: ILM چه مشکلی را حل می‌کند؟
+### سوال ۲: ILM چه مشکلی حل می‌کند؟
 
 **سطح:** Senior
 **تکرار:** کم
 
 **جواب کامل:**
 
-برای داده‌ی time-series (مثل log، metric) که حجم زیاد و ارزش کاهنده با زمان دارد، نگه‌داری همه روی storage گران (hot، SSD) ناکارآمد است. ILM چرخه‌ی خودکار تعریف می‌کند: داده‌ی جدید در **hot** (سریع، قابل‌نوشتن)، بعد از مدتی به **warm** (read-only، storage ارزان‌تر)، سپس **cold** (به‌ندرت دسترسی)، و نهایتاً **delete** (حذف خودکار بعد از retention). مزایا: کاهش هزینه‌ی storage، performance بهتر hot index (کوچک می‌ماند)، و حذف خودکار بدون cron دستی. معمولاً با rollover (وقتی index به اندازه/سن مشخص رسید، index جدید) ترکیب می‌شود.
+برای time-series (log) با ارزش کاهنده، نگه‌داری همه روی hot گران. ILM چرخه‌ی خودکار: hot (سریع) → warm (read-only، ارزان) → cold → delete (بعد از retention). کاهش هزینه، performance hot بهتر، حذف خودکار. با rollover ترکیب می‌شود.
 
 **نکته مصاحبه:**
 
-Senior به hot/warm/cold/delete و کاهش هزینه اشاره می‌کند.
+Senior به hot/warm/cold/delete اشاره می‌کند.
 
 ---
 
 ## ⚠️ اشتباهات رایج
 
-### اشتباه ۱: استفاده از نام مستقیم index به‌جای alias
+### اشتباه ۱: نام مستقیم index به‌جای alias
 
 ```text
-❌ اپ به index مستقیم وصل → reindex بدون downtime ممکن نیست
-✅ اپ به alias وصل شود
+❌ اپ به index مستقیم → reindex بدون downtime ممکن نیست
+✅ اپ به alias
 ```
 
 **توضیح:** alias برای switch بدون downtime لازم است.
 
 ---
 
-### اشتباه ۲: shard بیش از حد زیاد
+### اشتباه ۲: shard بیش از حد (oversharding)
 
 ```text
-❌ تعداد shard زیاد برای داده‌ی کم → overhead (oversharding)
-✅ تعداد shard متناسب با حجم داده
+❌ shard زیاد برای داده‌ی کم → overhead
+✅ shard متناسب با حجم
 ```
 
-**توضیح:** هر shard overhead دارد؛ oversharding performance را کم می‌کند.
+**توضیح:** هر shard overhead دارد.
 
 ---
 
 ## 🔗 ارتباط با سایر مفاهیم
 
 - ILM با **log retention (ELK 10.4)**.
-- alias/reindex با **zero-downtime migration**.
-- shard با **sharding (4.4)** و scaling.
+- alias/reindex با zero-downtime migration.
+- shard با **sharding (4.4)**.
